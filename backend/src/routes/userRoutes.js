@@ -1,5 +1,6 @@
 const express = require('express');
 const { 
+  getAllUsers,
   getProfile, 
   updateProfile, 
   toggleConnection, 
@@ -11,20 +12,22 @@ const rateLimit = require('express-rate-limit');
 
 const router = express.Router();
 
-// Rate limiter specifically for the follow endpoint to prevent spam/botting
 const followRateLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute
-  max: 10, // Limit each IP to 10 follow/unfollow requests per minute
+  max: 10,
   message: { success: false, message: 'Too many requests, please try again later.' }
 });
 
-// Require both authentication AND verified KYC for all user/profile endpoints
+// Require both authentication AND verified KYC for user routes
 router.use(protect, requireKyc);
 
-// Get public profile
+// 👈 1. Root route MUST be defined before /:id parameter routes
+router.get('/', getAllUsers);
+
+// 2. Profile by ID or alias
 router.get('/:id', getProfile);
 
-// Update user profile details (Supports avatar and document uploads)
+// 3. Update user profile
 router.put(
   '/:id', 
   upload.fields([
@@ -35,10 +38,10 @@ router.put(
   updateProfile
 );
 
-// Follow / Unfollow a user or NGO
+// 4. Follow / Unfollow
 router.post('/:id/follow', followRateLimiter, toggleConnection);
 
-// Get user activities (Posts, etc.) for the Profile Page timeline
+// 5. User activities
 router.get('/:id/activities', getUserActivities);
 
 module.exports = router;

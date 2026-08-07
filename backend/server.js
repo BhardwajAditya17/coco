@@ -1,3 +1,4 @@
+// server.js
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -13,6 +14,7 @@ const userRoutes = require('./src/routes/userRoutes');
 const postRoutes = require('./src/routes/postRoutes');
 const kycRoutes = require('./src/routes/kycRoutes');
 const adminRoutes = require('./src/routes/adminRoutes');
+const messageRoutes = require('./src/routes/messageRoutes');
 
 // Import Middlewares & Config
 const errorHandler = require('./src/middlewares/errorHandler');
@@ -75,6 +77,7 @@ app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/posts', postRoutes);
 app.use('/api/v1/kyc', kycRoutes);
 app.use('/api/v1/admin', adminRoutes);
+app.use('/api/v1/messages', messageRoutes);
 
 // ==========================================
 // 3. ERROR HANDLING

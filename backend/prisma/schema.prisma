@@ -35,17 +35,36 @@ model User {
   created_at       DateTime @default(now())
   updated_at       DateTime @updatedAt @default(now())
 
-  posts     Post[]
-  comments  Comment[]
-  likes     Like[]
+  posts            Post[]
+  comments         Comment[]
+  likes            Like[]
 
   // Self-relations for followers/following
-  followers Connection[] @relation("following")
-  following Connection[] @relation("followers")
+  followers        Connection[] @relation("following")
+  following        Connection[] @relation("followers")
 
   // Relations for WhatsApp connection requests
   sentWhatsappRequests     WhatsappRequest[] @relation("SentWhatsappRequests")
   receivedWhatsappRequests WhatsappRequest[] @relation("ReceivedWhatsappRequests")
+
+  // Relations for Real-time Direct Chat / Messages
+  sentMessages     Message[] @relation("SentMessages")
+  receivedMessages Message[] @relation("ReceivedMessages")
+}
+
+// Table for Direct Chat / WebSocket Messages
+model Message {
+  id          Int      @id @default(autoincrement())
+  sender_id   Int
+  receiver_id Int
+  content     String   @db.Text
+  is_read     Boolean  @default(false)
+  created_at  DateTime @default(now())
+
+  sender   User @relation("SentMessages", fields: [sender_id], references: [id], onDelete: Cascade)
+  receiver User @relation("ReceivedMessages", fields: [receiver_id], references: [id], onDelete: Cascade)
+
+  @@index([sender_id, receiver_id])
 }
 
 // Table for WhatsApp connection requests

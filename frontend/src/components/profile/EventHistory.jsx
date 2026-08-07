@@ -6,7 +6,11 @@ import { formatDate } from '../../utils/formatters';
 const INITIAL_BATCH_SIZE = 5;
 const BATCH_INCREMENT = 5;
 
-const EventHistory = ({ userId }) => {
+const EventHistory = ({ 
+  userId, 
+  filterTypes = null, 
+  emptyMessage = "No activity found." 
+}) => {
   const [activities, setActivities] = useState([]);
   const [visibleCount, setVisibleCount] = useState(INITIAL_BATCH_SIZE);
   const [isLoading, setIsLoading] = useState(true);
@@ -20,7 +24,6 @@ const EventHistory = ({ userId }) => {
 
     // Reset pagination batch on user change
     setVisibleCount(INITIAL_BATCH_SIZE);
-
     const abortController = new AbortController();
 
     const fetchUserActivity = async () => {
@@ -40,20 +43,17 @@ const EventHistory = ({ userId }) => {
         });
 
         if (!response.ok) {
-          throw new Error(`Failed to fetch activities: ${response.statusText}`);
+          throw new Error(`Failed to fetch activity history: ${response.statusText}`);
         }
 
         const json = await response.json();
-        
         const activityData = Array.isArray(json) ? json : json.data || [];
         setActivities(activityData);
 
       } catch (err) {
-        if (err.name === 'AbortError') {
-          return; 
-        }
+        if (err.name === 'AbortError') return;
         console.error("Activity fetch error:", err);
-        setError("Unable to load recent activity. Please try again later.");
+        setError("Unable to load details. Please try again later.");
       } finally {
         setIsLoading(false);
       }
@@ -61,20 +61,24 @@ const EventHistory = ({ userId }) => {
 
     fetchUserActivity();
 
-    return () => {
-      abortController.abort();
-    };
+    return () => abortController.abort();
   }, [userId]);
 
   const handleLoadMore = () => {
     setVisibleCount((prevCount) => prevCount + BATCH_INCREMENT);
   };
 
+  // Filter activities based on passed filterTypes array (e.g. ['post'], ['like'], ['comment'])
+  const filteredActivities = activities.filter((activity) => {
+    if (!filterTypes || filterTypes.length === 0) return true;
+    return filterTypes.includes(activity.type);
+  });
+
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-gray-500">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600 mb-4" />
-        <p className="text-sm font-medium">Loading activity...</p>
+        <p className="text-sm font-medium">Loading details...</p>
       </div>
     );
   }
@@ -88,10 +92,10 @@ const EventHistory = ({ userId }) => {
     );
   }
 
-  if (activities.length === 0) {
+  if (filteredActivities.length === 0) {
     return (
       <div className="text-center py-12 text-gray-500 bg-gray-50 rounded-lg border border-gray-200 border-dashed">
-        <p className="text-sm font-medium">No recent activity found.</p>
+        <p className="text-sm font-medium">{emptyMessage}</p>
       </div>
     );
   }
@@ -118,18 +122,18 @@ const EventHistory = ({ userId }) => {
     }
   };
 
-  // Slice activities array to show only the active batch
-  const visibleActivities = activities.slice(0, visibleCount);
-  const hasMore = visibleCount < activities.length;
+  const visibleActivities = filteredActivities.slice(0, visibleCount);
+  const hasMore = visibleCount < filteredActivities.length;
 
   return (
     <div className="flow-root">
       <ul className="-mb-8">
         {visibleActivities.map((activity, index) => {
           const isLast = index === visibleActivities.length - 1;
-          
+          const targetPostId = activity.targetId || activity.id || activity._id;
+
           return (
-            <li key={activity.id || activity._id}>
+            <li key={activity.id || activity._id || index}>
               <div className="relative pb-8">
                 {(!isLast || hasMore) && (
                   <span
@@ -139,34 +143,38 @@ const EventHistory = ({ userId }) => {
                 )}
                 <div className="relative flex items-start space-x-3">
                   
+                  {/* Badge Icon */}
                   <div className={`relative px-2 py-2 rounded-full border shadow-sm z-10 bg-white ${getActivityBadgeClass(activity.type)}`}>
                     {getActivityIcon(activity.type)}
                   </div>
                   
+                  {/* Main Item Card */}
                   <div className="min-w-0 flex-1 py-1.5">
                     <div className="text-sm text-gray-500 mb-1">
                       <span className="font-medium text-gray-900 mr-2 capitalize">
                         {activity.type === 'post' ? 'Published a post' : 
-                         activity.type === 'comment' ? 'Commented' : 'Liked'}
+                         activity.type === 'comment' ? 'Commented' : 'Liked a post'}
                       </span>
                       <span className="text-xs text-gray-400">
                         {formatDate(activity.createdAt)}
                       </span>
                     </div>
                     
+                    {/* Content Body (Post body or Comment text) */}
                     {activity.content && (
-                      <div className="text-sm text-gray-700 bg-gray-50 rounded-lg p-3 border border-gray-100 mt-1">
+                      <div className="text-sm text-gray-700 bg-gray-50 rounded-lg p-3 border border-gray-100 mt-1 leading-relaxed">
                         {activity.content}
                       </div>
                     )}
 
-                    {activity.targetId && (
+                    {/* Target Link */}
+                    {targetPostId && (
                       <div className="mt-2">
                         <Link 
-                          to={`/post/${activity.targetId}`} 
+                          to={`/post/${targetPostId}`} 
                           className="text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors"
                         >
-                          View Original &rarr;
+                          {activity.type === 'post' ? 'View Published Post \u2192' : 'View Original Post \u2192'}
                         </Link>
                       </div>
                     )}
@@ -179,14 +187,14 @@ const EventHistory = ({ userId }) => {
         })}
       </ul>
 
-      {/* "Load More" Trigger */}
+      {/* Load More Button */}
       {hasMore && (
         <div className="mt-8 pt-4 text-center relative z-10">
           <button
             onClick={handleLoadMore}
-            className="inline-flex items-center space-x-2 px-4 py-2 border border-gray-300 shadow-sm text-xs font-semibold rounded-full text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all cursor-pointer"
+            className="inline-flex items-center space-x-2 px-4 py-2 border border-gray-300 shadow-sm text-xs font-semibold rounded-full text-gray-700 bg-white hover:bg-gray-50 transition-all cursor-pointer"
           >
-            <span>Show More Activity</span>
+            <span>Show More</span>
             <ChevronDown className="w-3.5 h-3.5 text-gray-500" />
           </button>
         </div>

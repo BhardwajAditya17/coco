@@ -1,5 +1,31 @@
 const prisma = require('../config/prisma');
 
+// Fetch all community members for chat / directory
+const getAllUsers = async (currentUserId = null) => {
+  const currId = currentUserId ? (isNaN(currentUserId) ? currentUserId : parseInt(currentUserId, 10)) : null;
+
+  const users = await prisma.user.findMany({
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      bio: true,
+      location: true,
+      avatar_url: true,
+      current_position: true,
+      aadhaar_status: true,
+      user_type: true,
+      created_at: true,
+    },
+    orderBy: {
+      name: 'asc',
+    },
+  });
+
+  return users;
+};
+
 const getUserProfile = async (targetUserId, currentUserId = null) => {
   const targetId = isNaN(targetUserId) ? targetUserId : parseInt(targetUserId, 10);
   const currId = currentUserId ? (isNaN(currentUserId) ? currentUserId : parseInt(currentUserId, 10)) : null;
@@ -50,7 +76,6 @@ const getUserProfile = async (targetUserId, currentUserId = null) => {
 const updateUserProfile = async (targetUserId, updateData) => {
   const targetId = isNaN(targetUserId) ? targetUserId : parseInt(targetUserId, 10);
 
-  // Extract allowed profile & verification fields
   const { 
     name, 
     bio, 
@@ -70,18 +95,16 @@ const updateUserProfile = async (targetUserId, updateData) => {
   if (bio !== undefined) dataToUpdate.bio = bio;
   if (location !== undefined) dataToUpdate.location = location;
 
-  // Support both snake_case and camelCase field naming
   if (current_position !== undefined) dataToUpdate.current_position = current_position;
   if (currentPosition !== undefined) dataToUpdate.current_position = currentPosition;
 
   const avatar = avatar_url !== undefined ? avatar_url : avatarUrl;
   if (avatar !== undefined) dataToUpdate.avatar_url = avatar;
 
-  // Handle Identity Verification Document updates
   const docUrl = aadhaar_doc_url !== undefined ? aadhaar_doc_url : aadhaarDocUrl;
   if (docUrl !== undefined) {
     dataToUpdate.aadhaar_doc_url = docUrl;
-    dataToUpdate.aadhaar_status = 'pending'; // Reset verification status upon new document upload
+    dataToUpdate.aadhaar_status = 'pending';
   }
 
   const idNum = aadhaar_number !== undefined ? aadhaar_number : aadhaarNumber;
@@ -114,7 +137,6 @@ const updateUserProfile = async (targetUserId, updateData) => {
 
     return updatedProfile;
   } catch (error) {
-    // Prisma Record Not Found code
     if (error.code === 'P2025') {
       const notFoundError = new Error('User profile not found.');
       notFoundError.statusCode = 404;
@@ -231,6 +253,7 @@ const getActivities = async (userId) => {
 };
 
 module.exports = {
+  getAllUsers,
   getUserProfile,
   updateUserProfile,
   toggleConnection,

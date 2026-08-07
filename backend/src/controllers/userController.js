@@ -1,10 +1,29 @@
 const userService = require('../services/userService');
 
+const getAllUsers = async (req, res, next) => {
+  try {
+    const currentUserId = req.user?.id;
+    const users = await userService.getAllUsers(currentUserId);
+
+    return res.status(200).json({
+      success: true,
+      data: users,
+    });
+  } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({
+        success: false,
+        message: error.message,
+      });
+    }
+    next(error);
+  }
+};
+
 const getProfile = async (req, res, next) => {
   try {
     let targetUserId = req.params.id;
 
-    // Handle '/profile' or '/me' aliases dynamically
     if (!targetUserId || targetUserId === 'profile' || targetUserId === 'me') {
       targetUserId = req.user?.id;
     }
@@ -45,7 +64,6 @@ const updateProfile = async (req, res, next) => {
   try {
     let targetUserId = req.params.id;
 
-    // Handle '/profile' or '/me' aliases dynamically
     if (!targetUserId || targetUserId === 'profile' || targetUserId === 'me') {
       targetUserId = req.user?.id;
     }
@@ -59,7 +77,6 @@ const updateProfile = async (req, res, next) => {
       });
     }
 
-    // Security Check: Users can only update their own profile unless they are an admin
     if (String(targetUserId) !== String(currentUserId) && req.user?.role !== 'admin') {
       return res.status(403).json({
         success: false,
@@ -67,15 +84,12 @@ const updateProfile = async (req, res, next) => {
       });
     }
 
-    // Merge request body with uploaded file paths
     const updatePayload = { ...req.body };
 
-    // 1. Single File Upload Handler
     if (req.file) {
       const fileUrl = `/uploads/${req.file.filename}`;
       const field = req.file.fieldname;
 
-      // Map document upload fields vs avatar upload fields
       if (['aadhaar_doc', 'aadhaar_doc_url', 'document', 'kyc_doc'].includes(field)) {
         updatePayload.aadhaar_doc_url = fileUrl;
       } else {
@@ -83,7 +97,6 @@ const updateProfile = async (req, res, next) => {
       }
     }
 
-    // 2. Multiple Named Fields Handler (if upload.fields() is used)
     if (req.files) {
       if (req.files.avatar && req.files.avatar[0]) {
         updatePayload.avatar_url = `/uploads/${req.files.avatar[0].filename}`;
@@ -149,7 +162,6 @@ const getUserActivities = async (req, res, next) => {
   try {
     let userId = req.params.id;
 
-    // Handle '/profile' or '/me' aliases dynamically
     if (!userId || userId === 'profile' || userId === 'me') {
       userId = req.user?.id;
     }
@@ -179,6 +191,7 @@ const getUserActivities = async (req, res, next) => {
 };
 
 module.exports = {
+  getAllUsers,
   getProfile,
   updateProfile,
   toggleConnection,

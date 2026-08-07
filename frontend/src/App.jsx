@@ -10,6 +10,8 @@ import ProfilePage from './pages/ProfilePage';
 import ProfileSummaryPage from './pages/ProfileSummaryPage';
 import KycPage from './pages/KycPage';
 import AdminDashboard from './pages/AdminDashboard';
+import ChatPage from './pages/ChatPage';
+import CommunityPage from './pages/CommunityPage';
 
 // Components
 import Navbar from './components/common/Navbar';
@@ -109,6 +111,12 @@ function App() {
           {/* Strict Protected Routes (Requires Completed Verification) */}
           <Route element={<ProtectedRoute requireKyc={true} />}>
             <Route path="/feed" element={<FeedPage />} />
+
+            {/*  Real-time Chat Route */}
+            <Route path="/chat" element={<ChatPage />} />
+
+            {/* Community Route */}
+            <Route path="/community" element={<CommunityPage />} />
             
             {/* User Profile Routes */}
             <Route path="/profile" element={<ProfilePage />} />

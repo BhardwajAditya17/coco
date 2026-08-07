@@ -13,19 +13,18 @@ import {
   Share2,
   Check,
   Info,
-  Activity
+  FileText,
+  Heart,
+  MessageCircle,
+  MessageSquare
 } from 'lucide-react';
 import EventHistory from '../components/profile/EventHistory';
 import { cn } from '../utils/cn';
 
 const API_BASE_URL = 'http://localhost:5002/api/v1';
 
-/**
- * Helper to resolve media URLs to full absolute server URLs
- */
 const getImageUrl = (mediaInput) => {
   if (!mediaInput) return null;
-
   let mediaUrl = typeof mediaInput === 'object'
     ? (mediaInput.url || mediaInput.path || mediaInput.src || '')
     : mediaInput;
@@ -49,9 +48,6 @@ const getImageUrl = (mediaInput) => {
   return `http://localhost:5002${cleanPath}`;
 };
 
-/**
- * Role Label helper matching ProfileHeaderCard logic
- */
 const getRoleLabel = (role) => {
   switch (role?.toLowerCase()) {
     case 'ngo': 
@@ -73,7 +69,6 @@ const ProfileSummaryPage = () => {
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState('about');
 
-  // Fetch target public profile details
   useEffect(() => {
     if (!userId) return;
 
@@ -108,7 +103,18 @@ const ProfileSummaryPage = () => {
     fetchPublicProfile();
   }, [userId]);
 
-  // Share profile link handler
+  // Direct messaging click handler targeting /chat
+  const handleSendMessage = () => {
+    if (!userId) return;
+
+    navigate(`/chat?userId=${userId}`, {
+      state: {
+        recipientId: userId,
+        recipient: profile
+      }
+    });
+  };
+
   const handleShareProfile = async () => {
     const profileUrl = window.location.href;
     if (navigator.share) {
@@ -118,7 +124,7 @@ const ProfileSummaryPage = () => {
           url: profileUrl,
         });
       } catch (err) {
-        // User cancelled share
+        // Ignored
       }
     } else {
       try {
@@ -158,7 +164,6 @@ const ProfileSummaryPage = () => {
     );
   }
 
-  // Profile fields mapping
   const currentPosition = profile?.current_position || profile?.currentPosition;
   const rawAvatarUrl = profile?.avatar_url || profile?.avatarUrl;
   const avatarUrl = getImageUrl(rawAvatarUrl);
@@ -174,7 +179,6 @@ const ProfileSummaryPage = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 pb-12">
-      {/* Top Navigation Bar */}
       <div className="bg-white border-b border-gray-200 sticky top-0 z-30">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between">
           <button
@@ -188,30 +192,32 @@ const ProfileSummaryPage = () => {
             {profile.name}'s Profile
           </h1>
 
-          <button
-            onClick={handleShareProfile}
-            className="p-2 text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
-            title="Share Profile"
-          >
-            {copied ? <Check className="w-4 h-4 text-emerald-600" /> : <Share2 className="w-4 h-4" />}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleSendMessage}
+              className="inline-flex sm:hidden items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer"
+            >
+              <MessageSquare className="w-3.5 h-3.5" /> Message
+            </button>
+
+            <button
+              onClick={handleShareProfile}
+              className="p-2 text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
+              title="Share Profile"
+            >
+              {copied ? <Check className="w-4 h-4 text-emerald-600" /> : <Share2 className="w-4 h-4" />}
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Main Content */}
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 mt-6 space-y-6">
-        
-        {/* Profile Header Card */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-          
-          {/* Cover Banner */}
           <div className="h-40 bg-gradient-to-r from-blue-600 to-indigo-700 relative">
             <div className="absolute inset-0 bg-black/10"></div>
           </div>
 
           <div className="px-6 sm:px-8 pb-8">
-            
-            {/* Avatar Header Row */}
             <div className="flex justify-between items-end -mt-16 mb-6 relative z-10">
               <div className="w-32 h-32 rounded-full border-4 border-white bg-white shadow-md flex items-center justify-center overflow-hidden shrink-0">
                 {avatarUrl ? (
@@ -229,21 +235,24 @@ const ProfileSummaryPage = () => {
                   </div>
                 )}
               </div>
+
+              <div className="hidden sm:block">
+                <button
+                  onClick={handleSendMessage}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm hover:shadow transition-all cursor-pointer"
+                >
+                  <MessageSquare className="w-4 h-4" /> Message User
+                </button>
+              </div>
             </div>
 
-            {/* Details & Post Stats */}
             <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
-              
-              {/* Profile Details */}
               <div className="space-y-3">
-                
-                {/* Name & Badges */}
                 <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                   <h1 className="text-3xl font-bold text-gray-900 tracking-tight">
                     {profile.name}
                   </h1>
 
-                  {/* Role Badge */}
                   <span className={cn(
                     "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border",
                     userRole === 'ngo' ? "bg-purple-50 text-purple-700 border-purple-200" : "bg-blue-50 text-blue-700 border-blue-200"
@@ -252,7 +261,6 @@ const ProfileSummaryPage = () => {
                     {getRoleLabel(userRole)}
                   </span>
 
-                  {/* Aadhaar Verification Badge */}
                   {isVerified && (
                     <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                       <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
@@ -261,7 +269,6 @@ const ProfileSummaryPage = () => {
                   )}
                 </div>
 
-                {/* Metadata Row: Current Position, Location, Joined Date */}
                 <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-gray-600">
                   {currentPosition && (
                     <div className="flex items-center gap-1.5 font-medium text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-md border border-blue-100">
@@ -284,23 +291,27 @@ const ProfileSummaryPage = () => {
                 </div>
               </div>
 
-              {/* Quick Post Count Box */}
-              <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 min-w-[140px] shrink-0">
-                <div className="text-center">
+              <div className="flex flex-row md:flex-col items-center justify-between gap-4 p-4 bg-gray-50 rounded-xl border border-gray-100 min-w-[160px] shrink-0">
+                <div className="text-center w-full">
                   <div className="text-3xl font-bold text-blue-600">
                     {postCount}
                   </div>
                   <div className="text-xs font-medium text-gray-500 uppercase tracking-wider mt-1">
-                    Posts
+                    Published Posts
                   </div>
                 </div>
-              </div>
 
+                <button
+                  onClick={handleSendMessage}
+                  className="sm:hidden w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-all cursor-pointer"
+                >
+                  <MessageSquare className="w-3.5 h-3.5" /> Message
+                </button>
+              </div>
             </div>
 
-            {/* Navigation Tabs */}
             <div className="border-b border-gray-200 mt-8 mb-4">
-              <nav className="flex space-x-8" aria-label="Tabs">
+              <nav className="flex flex-wrap space-x-6 sm:space-x-8" aria-label="Tabs">
                 <button
                   onClick={() => setActiveTab('about')}
                   className={cn(
@@ -315,25 +326,49 @@ const ProfileSummaryPage = () => {
                 </button>
 
                 <button
-                  onClick={() => setActiveTab('activity')}
+                  onClick={() => setActiveTab('posts')}
                   className={cn(
                     "whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm flex items-center gap-2 cursor-pointer transition-colors",
-                    activeTab === 'activity'
+                    activeTab === 'posts'
                       ? "border-blue-600 text-blue-600"
                       : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                   )}
                 >
-                  <Activity className="w-4 h-4" />
-                  Recent Activity
+                  <FileText className="w-4 h-4" />
+                  Published Posts ({postCount})
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('likes')}
+                  className={cn(
+                    "whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm flex items-center gap-2 cursor-pointer transition-colors",
+                    activeTab === 'likes'
+                      ? "border-red-600 text-red-600"
+                      : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                  )}
+                >
+                  <Heart className="w-4 h-4" />
+                  Liked Posts
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('comments')}
+                  className={cn(
+                    "whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm flex items-center gap-2 cursor-pointer transition-colors",
+                    activeTab === 'comments'
+                      ? "border-green-600 text-green-600"
+                      : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                  )}
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  Comments
                 </button>
               </nav>
             </div>
 
-            {/* Tab Views */}
             <div className="pt-2">
-              {activeTab === 'about' ? (
+              {activeTab === 'about' && (
                 <div className="space-y-4">
-                  {/* Current Position Display Card in About */}
                   {currentPosition && (
                     <div className="bg-gray-50/50 p-4 rounded-xl border border-gray-200 flex items-center gap-3">
                       <div className="p-2.5 bg-blue-100/70 text-blue-700 rounded-lg shrink-0">
@@ -350,7 +385,6 @@ const ProfileSummaryPage = () => {
                     </div>
                   )}
 
-                  {/* Bio Card in About */}
                   {profile.bio ? (
                     <div className="bg-gray-50/50 p-5 rounded-xl border border-gray-200 space-y-2">
                       <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">
@@ -369,13 +403,38 @@ const ProfileSummaryPage = () => {
                     )
                   )}
                 </div>
-              ) : (
+              )}
+
+              {activeTab === 'posts' && (
                 <div className="bg-white rounded-xl border border-gray-200 p-6">
-                  <EventHistory userId={profile.id || userId} />
+                  <EventHistory 
+                    userId={profile.id || userId} 
+                    filterTypes={['post']}
+                    emptyMessage="No published posts found."
+                  />
+                </div>
+              )}
+
+              {activeTab === 'likes' && (
+                <div className="bg-white rounded-xl border border-gray-200 p-6">
+                  <EventHistory 
+                    userId={profile.id || userId} 
+                    filterTypes={['like']}
+                    emptyMessage="No liked posts found."
+                  />
+                </div>
+              )}
+
+              {activeTab === 'comments' && (
+                <div className="bg-white rounded-xl border border-gray-200 p-6">
+                  <EventHistory 
+                    userId={profile.id || userId} 
+                    filterTypes={['comment']}
+                    emptyMessage="No comments added yet."
+                  />
                 </div>
               )}
             </div>
-
           </div>
         </div>
       </div>

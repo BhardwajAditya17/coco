@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Activity, MessageCircle } from 'lucide-react';
+import { FileText, Heart, MessageCircle } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import EventHistory from '../components/profile/EventHistory';
 import ProfileHeaderCard from '../components/profile/ProfileHeaderCard';
-import WhatsAppRequests from '../components/profile/WhatsAppRequests';
 import EditProfileModal from '../components/profile/EditProfileModal';
 import { cn } from '../utils/cn';
 
@@ -12,12 +11,11 @@ const ProfilePage = () => {
   const { user, logout, updateUser } = useAuth();
   const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = useState('activity');
+  const [activeTab, setActiveTab] = useState('posts'); // 'posts' | 'likes' | 'comments'
   const [profileData, setProfileData] = useState(null);
   const [isFetchingProfile, setIsFetchingProfile] = useState(true);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
-  // Fetch full profile on mount
   useEffect(() => {
     if (!user?.id) return;
 
@@ -88,46 +86,82 @@ const ProfilePage = () => {
         onLogout={handleLogout}
       />
 
-      {/* Tabs Navigation */}
+      {/* Navigation Tabs */}
       <div className="border-b border-gray-200">
         <nav className="flex space-x-8 px-2" aria-label="Tabs">
+          {/* Published Posts */}
           <button
-            onClick={() => setActiveTab('activity')}
+            onClick={() => setActiveTab('posts')}
             className={cn(
-              "whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 cursor-pointer",
-              activeTab === 'activity'
+              "whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 cursor-pointer transition-colors",
+              activeTab === 'posts'
                 ? "border-blue-600 text-blue-600"
                 : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
             )}
           >
-            <Activity className="w-4 h-4" />
-            Recent Activity
+            <FileText className="w-4 h-4" />
+            Published Posts ({postCount})
           </button>
 
+          {/* Liked Posts */}
           <button
-            onClick={() => setActiveTab('whatsapp_requests')}
+            onClick={() => setActiveTab('likes')}
             className={cn(
-              "whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 cursor-pointer",
-              activeTab === 'whatsapp_requests'
+              "whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 cursor-pointer transition-colors",
+              activeTab === 'likes'
+                ? "border-red-600 text-red-600"
+                : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+            )}
+          >
+            <Heart className="w-4 h-4" />
+            Liked Posts
+          </button>
+
+          {/* Comments */}
+          <button
+            onClick={() => setActiveTab('comments')}
+            className={cn(
+              "whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 cursor-pointer transition-colors",
+              activeTab === 'comments'
                 ? "border-green-600 text-green-600"
                 : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
             )}
           >
             <MessageCircle className="w-4 h-4" />
-            WhatsApp Requests
+            Comments
           </button>
         </nav>
       </div>
 
-      {/* Tab Content */}
+      {/* Tab Content Display Area */}
       <div className="py-2">
-        {activeTab === 'activity' ? (
+        {activeTab === 'posts' && (
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <EventHistory userId={user.id} />
+            <EventHistory 
+              userId={user.id} 
+              filterTypes={['post']} 
+              emptyMessage="No published posts found."
+            />
           </div>
-        ) : (
+        )}
+
+        {activeTab === 'likes' && (
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <WhatsAppRequests />
+            <EventHistory 
+              userId={user.id} 
+              filterTypes={['like']} 
+              emptyMessage="No liked posts found."
+            />
+          </div>
+        )}
+
+        {activeTab === 'comments' && (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <EventHistory 
+              userId={user.id} 
+              filterTypes={['comment']} 
+              emptyMessage="No comments added yet."
+            />
           </div>
         )}
       </div>
