@@ -1,0 +1,126 @@
+// 1. Only ONE generator and ONE datasource block allowed
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id               Int      @id @default(autoincrement())
+  email            String   @unique
+  password         String
+  name             String   @db.VarChar(100)
+  phone            String?  @db.VarChar(20) // Required for WhatsApp links
+  avatar_url       String?
+  role             String   @default("user") @db.VarChar(20)
+  
+  // Onboarding & KYC Attributes
+  aadhaar_status   String   @default("not_started") @db.VarChar(20) 
+  kyc_reference_id String?  @db.VarChar(100)
+  kyc_client_ref   String?  @db.VarChar(100)
+  id_hash          String?  @db.VarChar(128)
+  aadhaar_doc_url  String?
+
+  // User & Payment Attributes
+  bio              String?
+  location         String?  @db.VarChar(100)
+  current_position String?  @db.VarChar(100)
+  
+  fee_status       String   @default("unpaid") @db.VarChar(20) 
+  user_type        String   @default("paid") @db.VarChar(30)
+  approval_status  String   @default("pending") @db.VarChar(20)
+
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt @default(now())
+
+  posts     Post[]
+  comments  Comment[]
+  likes     Like[]
+
+  // Self-relations for followers/following
+  followers Connection[] @relation("following")
+  following Connection[] @relation("followers")
+
+  // Relations for WhatsApp connection requests
+  sentWhatsappRequests     WhatsappRequest[] @relation("SentWhatsappRequests")
+  receivedWhatsappRequests WhatsappRequest[] @relation("ReceivedWhatsappRequests")
+}
+
+// Table for WhatsApp connection requests
+model WhatsappRequest {
+  id          Int      @id @default(autoincrement())
+  sender_id   Int
+  receiver_id Int
+  status      String   @default("PENDING") @db.VarChar(20) // PENDING, ACCEPTED, REJECTED
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt @default(now())
+
+  sender   User @relation("SentWhatsappRequests", fields: [sender_id], references: [id], onDelete: Cascade)
+  receiver User @relation("ReceivedWhatsappRequests", fields: [receiver_id], references: [id], onDelete: Cascade)
+
+  @@unique([sender_id, receiver_id])
+}
+
+model Post {
+  id         Int      @id @default(autoincrement())
+  user_id    Int
+  content    String
+  media_urls String[] 
+  created_at DateTime @default(now())
+
+  user     User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  comments Comment[]
+  likes    Like[]
+  tags     PostTag[]
+}
+
+model Tag {
+  id    Int       @id @default(autoincrement())
+  name  String    @unique @db.VarChar(50)
+  posts PostTag[]
+}
+
+model PostTag {
+  post_id Int
+  tag_id  Int
+
+  post Post @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tag_id], references: [id], onDelete: Cascade)
+
+  @@id([post_id, tag_id])
+}
+
+model Connection {
+  follower_id Int
+  followed_id Int
+  created_at  DateTime @default(now())
+
+  follower User @relation("followers", fields: [follower_id], references: [id], onDelete: Cascade)
+  followed User @relation("following", fields: [followed_id], references: [id], onDelete: Cascade)
+
+  @@id([follower_id, followed_id])
+}
+
+model Comment {
+  id         Int      @id @default(autoincrement())
+  post_id    Int
+  user_id    Int
+  content    String
+  created_at DateTime @default(now())
+
+  post Post @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+}
+
+model Like {
+  post_id    Int
+  user_id    Int
+  created_at DateTime @default(now())
+
+  post Post @relation(fields: [post_id], references: [id], onDelete: Cascade)
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@id([post_id, user_id])
+}
