@@ -1,46 +1,36 @@
-const jwt = require('jsonwebtoken');
-const { ROLES, HTTP_STATUS } = require('../utils/constants');
-
 /**
- * Middleware to verify JWT Bearer token and attach req.user
+ * Middleware to restrict route access strictly to users with 'ADMIN' role.
+ * Expects protect / authMiddleware to have executed prior and attached req.user.
  */
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1]; // Format: "Bearer <TOKEN>"
-
-  if (!token) {
-    return res.status(HTTP_STATUS?.UNAUTHORIZED || 401).json({
-      success: false,
-      message: 'Access denied. Authentication token required.',
-    });
-  }
-
+const adminMiddleware = (req, res, next) => {
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_secret_key');
-    req.user = decoded; // Attach decoded user object { id, role, etc. }
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required',
+      });
+    }
+
+    const userRole = (req.user.role || '').toUpperCase();
+
+    if (userRole !== 'ADMIN') {
+      return res.status(403).json({
+        success: false,
+        message: 'Forbidden: Admin authorization required',
+      });
+    }
+
     next();
   } catch (error) {
-    return res.status(HTTP_STATUS?.UNAUTHORIZED || 401).json({
+    return res.status(500).json({
       success: false,
-      message: 'Invalid or expired token.',
+      message: 'Server error during admin verification',
+      error: error.message,
     });
   }
 };
 
-/**
- * Middleware to restrict route access to Admin users only
- */
-const requireAdmin = (req, res, next) => {
-  if (!req.user || req.user.role !== ROLES.ADMIN) {
-    return res.status(HTTP_STATUS?.FORBIDDEN || 403).json({
-      success: false,
-      message: 'Access denied. Administrator privilege required.',
-    });
-  }
-  next();
-};
-
-module.exports = {
-  authenticateToken,
-  requireAdmin,
+module.exports = { 
+  adminMiddleware,
+  admin: adminMiddleware // Export alias
 };

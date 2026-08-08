@@ -10,7 +10,7 @@ import FeedPage from './pages/FeedPage';
 import ProfilePage from './pages/ProfilePage';
 import ProfileSummaryPage from './pages/ProfileSummaryPage';
 import KycPage from './pages/KycPage';
-import AdminDashboard from './pages/AdminDashboard';
+import AdminDashboardPage from './pages/AdminDashboardPage';
 import ChatPage from './pages/ChatPage';
 import CommunityPage from './pages/CommunityPage';
 import NotificationsPage from './pages/NotificationsPage';
@@ -58,18 +58,27 @@ const ProtectedRoute = ({ allowedRoles, requireKyc = true }) => {
 };
 
 /**
- * Global Main Layout (Includes Navigation Bar & Global Socket Provider)
+ * Global Main Layout for Standard App Pages (Includes Standard Navbar)
  */
 const MainLayout = () => {
   return (
-    <SocketProvider>
-      <div className="min-h-screen bg-gray-50">
-        <Navbar />
-        <main className="pt-16">
-          <Outlet />
-        </main>
-      </div>
-    </SocketProvider>
+    <div className="min-h-screen bg-gray-50">
+      <Navbar />
+      <main className="pt-16">
+        <Outlet />
+      </main>
+    </div>
+  );
+};
+
+/**
+ * Dedicated Layout for Admin Portal (No Standard Navbar)
+ */
+const AdminLayout = () => {
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <Outlet />
+    </div>
   );
 };
 
@@ -102,52 +111,45 @@ const RootRedirect = () => {
 
 function App() {
   return (
-    <Routes>
-      {/* Public Routes */}
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/signup" element={<SignupPage />} />
+    <SocketProvider>
+      <Routes>
+        {/* Public Routes */}
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/signup" element={<SignupPage />} />
 
-      {/* Authenticated Routes (Requires Login) */}
-      <Route element={<ProtectedRoute requireKyc={false} />}>
-        {/* Standalone Route (No Navbar) */}
-        <Route path="/kyc" element={<KycPage />} />
+        {/* Authenticated Routes (Requires Login) */}
+        <Route element={<ProtectedRoute requireKyc={false} />}>
+          {/* Standalone Verification Route (No Navbar) */}
+          <Route path="/kyc" element={<KycPage />} />
 
-        {/* Layout Wrapper (Renders Navbar & SocketProvider for all child routes) */}
-        <Route element={<MainLayout />}>
-          {/* Strict Protected Routes (Requires Completed Verification) */}
-          <Route element={<ProtectedRoute requireKyc={true} />}>
-            <Route path="/feed" element={<FeedPage />} />
+          {/* Standard Layout Wrapper (Renders Standard Navbar for user pages) */}
+          <Route element={<MainLayout />}>
+            <Route element={<ProtectedRoute requireKyc={true} />}>
+              <Route path="/feed" element={<FeedPage />} />
+              <Route path="/chat" element={<ChatPage />} />
+              <Route path="/community" element={<CommunityPage />} />
+              <Route path="/notifications" element={<NotificationsPage />} />
+              <Route path="/profile" element={<ProfilePage />} />
+              <Route path="/profile/:id" element={<ProfilePage />} />
+              <Route path="/profilesummary/:id" element={<ProfileSummaryPage />} />
+            </Route>
+          </Route>
 
-            {/* Real-time Chat Route */}
-            <Route path="/chat" element={<ChatPage />} />
-
-            {/* Community Route */}
-            <Route path="/community" element={<CommunityPage />} />
-
-            {/* Notifications Route */}
-            <Route path="/notifications" element={<NotificationsPage />} />
-
-            {/* User Profile Routes */}
-            <Route path="/profile" element={<ProfilePage />} />
-            <Route path="/profile/:id" element={<ProfilePage />} />
-            <Route path="/profilesummary/:id" element={<ProfileSummaryPage />} />
-
-            {/* Admin-Only Route */}
-            <Route
-              element={<ProtectedRoute allowedRoles={['admin']} requireKyc={true} />}
-            >
-              <Route path="/admin" element={<AdminDashboard />} />
+          {/* Admin Portal Layout (AdminDashboardPage renders AdminNavbar) */}
+          <Route element={<ProtectedRoute allowedRoles={['admin']} requireKyc={true} />}>
+            <Route element={<AdminLayout />}>
+              <Route path="/admin" element={<AdminDashboardPage />} />
             </Route>
           </Route>
         </Route>
-      </Route>
 
-      {/* Dynamic Root Route */}
-      <Route path="/" element={<RootRedirect />} />
+        {/* Dynamic Root Route */}
+        <Route path="/" element={<RootRedirect />} />
 
-      {/* Catch-all Route */}
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+        {/* Catch-all Route */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </SocketProvider>
   );
 }
 

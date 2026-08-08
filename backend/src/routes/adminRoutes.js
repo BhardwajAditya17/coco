@@ -1,28 +1,28 @@
 const express = require('express');
-const { 
-  getDashboardStats, 
-  getPendingMembers, 
-  updateKYCStatus, 
-  deletePost 
-} = require('../controllers/adminController');
-const { protect } = require('../middlewares/authMiddleware');
-const { requireAdmin } = require('../middlewares/adminMiddleware'); // Updated import
-
 const router = express.Router();
+const adminController = require('../controllers/adminController');
+const { protect } = require('../middlewares/authMiddleware');
+const { adminMiddleware } = require('../middlewares/adminMiddleware');
 
-// Apply both authentication and admin-role authorization
-router.use(protect, requireAdmin); // Updated variable reference
+// Protect all admin endpoints with authentication and strict role validation
+router.use(protect);
+router.use(adminMiddleware);
 
-// Get platform-wide statistics for the admin dashboard
-router.get('/analytics', getDashboardStats);
+// KPI Overview
+router.get('/stats', adminController.getStats);
 
-// Fetch users who are awaiting manual verification or review
-router.get('/members/pending', getPendingMembers);
+// User Management
+router.get('/users', adminController.getUsers);
+router.patch('/users/:id/status', adminController.updateUserStatus);
+router.patch('/users/:id/role', adminController.updateUserRole);
+router.delete('/users/:id', adminController.deleteUser);
 
-// Manually approve/reject a user's KYC status
-router.patch('/members/:userId/kyc', updateKYCStatus);
+// Moderation
+router.get('/moderation/posts', adminController.getFlaggedPosts);
+router.delete('/moderation/posts/:id', adminController.deletePost);
+router.patch('/moderation/posts/:id/dismiss', adminController.dismissPostFlags);
 
-// Delete any post that violates platform guidelines
-router.delete('/posts/:postId', deletePost);
+// Audit Trail Logs
+router.get('/audit-logs', adminController.getAuditLogs);
 
 module.exports = router;

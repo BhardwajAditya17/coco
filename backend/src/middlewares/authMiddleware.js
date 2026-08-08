@@ -9,7 +9,7 @@ const protect = async (req, res, next) => {
       id: 'mock-user-id-123',
       email: 'dev@communityconnect.org',
       name: 'Dev Admin',
-      role: ROLES.ADMIN,
+      role: ROLES?.ADMIN || 'ADMIN',
       aadhaar_status: AADHAAR_STATUS?.VERIFIED || 'verified',
       fee_status: 'paid',
       avatar_url: null,
@@ -24,7 +24,7 @@ const protect = async (req, res, next) => {
   }
 
   if (!token) {
-    return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+    return res.status(HTTP_STATUS?.UNAUTHORIZED || 401).json({
       success: false,
       message: 'Access denied. No token provided.',
     });
@@ -53,7 +53,7 @@ const protect = async (req, res, next) => {
     });
 
     if (!user) {
-      return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+      return res.status(HTTP_STATUS?.UNAUTHORIZED || 401).json({
         success: false,
         message: 'The user belonging to this token no longer exists.',
       });
@@ -63,7 +63,7 @@ const protect = async (req, res, next) => {
     next();
   } catch (error) {
     if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
-      return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+      return res.status(HTTP_STATUS?.UNAUTHORIZED || 401).json({
         success: false,
         message: 'Invalid or expired token. Please log in again.',
       });
@@ -78,7 +78,7 @@ const protect = async (req, res, next) => {
  */
 const requireKyc = (req, res, next) => {
   if (!req.user) {
-    return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+    return res.status(HTTP_STATUS?.UNAUTHORIZED || 401).json({
       success: false,
       message: 'Unauthorized. Authentication required.',
     });
@@ -88,7 +88,7 @@ const requireKyc = (req, res, next) => {
   const verifiedConstant = (AADHAAR_STATUS?.VERIFIED || 'verified').toLowerCase();
 
   if (kycStatus !== verifiedConstant) {
-    return res.status(HTTP_STATUS.FORBIDDEN).json({
+    return res.status(HTTP_STATUS?.FORBIDDEN || 403).json({
       success: false,
       message: 'Access denied. You must complete KYC identity verification first.',
       code: 'KYC_REQUIRED',
@@ -100,5 +100,6 @@ const requireKyc = (req, res, next) => {
 
 module.exports = { 
   protect, 
+  authMiddleware: protect, // Export alias for naming flexibility
   requireKyc 
 };

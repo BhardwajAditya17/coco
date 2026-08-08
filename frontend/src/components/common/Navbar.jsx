@@ -68,6 +68,9 @@ const Navbar = () => {
   const [avatarError, setAvatarError] = useState(false);
   const dropdownRef = useRef(null);
 
+  // Check if current user is an Admin (case-insensitive)
+  const isAdmin = user?.role?.toUpperCase() === 'ADMIN';
+
   // Extract avatar from all possible database schema key variations
   const rawAvatar = 
     user?.avatar_url || 
@@ -355,14 +358,14 @@ const Navbar = () => {
                         My Profile
                       </Link>
 
-                      {user?.role === 'admin' && (
+                      {isAdmin && (
                         <Link
                           to="/admin"
                           onClick={() => setIsProfileDropdownOpen(false)}
-                          className="flex items-center gap-2.5 px-4 py-2 text-xs text-gray-700 hover:bg-gray-50 hover:text-blue-600 font-medium transition-colors"
+                          className="flex items-center gap-2.5 px-4 py-2 text-xs text-indigo-700 bg-indigo-50/60 hover:bg-indigo-100 font-bold transition-colors"
                         >
-                          <Shield className="w-4 h-4 text-purple-600" />
-                          Admin Panel
+                          <Shield className="w-4 h-4 text-indigo-600" />
+                          Admin Portal
                         </Link>
                       )}
                     </div>
@@ -508,17 +511,17 @@ const Navbar = () => {
                   My Profile
                 </NavLink>
 
-                {user?.role === 'admin' && (
+                {isAdmin && (
                   <NavLink
                     to="/admin"
                     onClick={() => setIsMobileMenuOpen(false)}
                     className={({ isActive }) => cn(
-                      "flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors",
-                      isActive ? "bg-purple-50 text-purple-700" : "text-gray-700 hover:bg-gray-50"
+                      "flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition-colors",
+                      isActive ? "bg-indigo-600 text-white" : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
                     )}
                   >
-                    <Shield className="w-4 h-4 text-purple-600" />
-                    Admin Panel
+                    <Shield className="w-4 h-4 text-indigo-600" />
+                    Admin Portal
                   </NavLink>
                 )}
               </div>

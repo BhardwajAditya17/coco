@@ -1,4 +1,3 @@
-// server.js
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -23,12 +22,15 @@ const prisma = require('./src/config/prisma');
 
 const app = express();
 
+// Enable trust proxy for reverse proxies (Render, Heroku, Nginx, etc.)
+app.set('trust proxy', 1);
+
 // ==========================================
 // 1. SECURITY & UTILITY MIDDLEWARES
 // ==========================================
 // Set security HTTP headers
 app.use(helmet());
-// Exception for cross-origin images if serving static files locally
+// Exception for cross-origin images when serving static files locally
 app.use(helmet.crossOriginResourcePolicy({ policy: "cross-origin" }));
 
 // Enable CORS
@@ -54,9 +56,9 @@ if (process.env.NODE_ENV !== 'production') {
   app.use(morgan('combined'));
 }
 
-// Rate Limiting
+// Rate Limiting (Fixed: 15 minutes = 15 * 60 * 1000 ms)
 const apiLimiter = rateLimit({
-  windowMs: 100, // 15 minutes
+  windowMs: 15 * 60 * 1000, 
   max: 150,
   message: { success: false, message: 'Too many requests from this IP, please try again after 15 minutes' },
   standardHeaders: true,
@@ -84,7 +86,7 @@ app.use('/api/v1/notifications', notificationRoutes);
 // ==========================================
 // 3. ERROR HANDLING
 // ==========================================
-// 404 Handler for undefined routes (No path string needed for catch-all)
+// 404 Handler for undefined routes
 app.use((req, res) => {
   res.status(404).json({ success: false, message: `Route ${req.originalUrl} not found` });
 });
@@ -121,6 +123,13 @@ const shutdown = async (signal) => {
     process.exit(1);
   }, 10000);
 };
+
+// Catch synchronous uncaught exceptions
+process.on('uncaughtException', (err) => {
+  console.error('UNCAUGHT EXCEPTION! 💥 Shutting down...');
+  console.error(err.name, err.message);
+  shutdown('UNCAUGHT_EXCEPTION');
+});
 
 // Listen for termination signals
 process.on('SIGTERM', () => shutdown('SIGTERM'));
