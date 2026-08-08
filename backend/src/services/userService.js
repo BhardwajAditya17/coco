@@ -1,6 +1,9 @@
 const prisma = require('../config/prisma');
+const { createNotification } = require('./notificationService');
 
-// Fetch all community members for chat / directory
+/**
+ * Fetch all community members for chat / directory
+ */
 const getAllUsers = async (currentUserId = null) => {
   const currId = currentUserId ? (isNaN(currentUserId) ? currentUserId : parseInt(currentUserId, 10)) : null;
 
@@ -26,6 +29,9 @@ const getAllUsers = async (currentUserId = null) => {
   return users;
 };
 
+/**
+ * Fetch a target user's full profile details
+ */
 const getUserProfile = async (targetUserId, currentUserId = null) => {
   const targetId = isNaN(targetUserId) ? targetUserId : parseInt(targetUserId, 10);
   const currId = currentUserId ? (isNaN(currentUserId) ? currentUserId : parseInt(currentUserId, 10)) : null;
@@ -73,6 +79,9 @@ const getUserProfile = async (targetUserId, currentUserId = null) => {
   };
 };
 
+/**
+ * Update user profile information
+ */
 const updateUserProfile = async (targetUserId, updateData) => {
   const targetId = isNaN(targetUserId) ? targetUserId : parseInt(targetUserId, 10);
 
@@ -86,8 +95,8 @@ const updateUserProfile = async (targetUserId, updateData) => {
     avatarUrl,
     aadhaar_doc_url,
     aadhaarDocUrl,
-    aadhaar_number,
-    aadhaarNumber
+    id_hash,
+    idHash
   } = updateData;
 
   const dataToUpdate = {};
@@ -107,9 +116,9 @@ const updateUserProfile = async (targetUserId, updateData) => {
     dataToUpdate.aadhaar_status = 'pending';
   }
 
-  const idNum = aadhaar_number !== undefined ? aadhaar_number : aadhaarNumber;
-  if (idNum !== undefined) {
-    dataToUpdate.aadhaar_number = idNum;
+  const hashedIdentity = id_hash !== undefined ? id_hash : idHash;
+  if (hashedIdentity !== undefined) {
+    dataToUpdate.id_hash = hashedIdentity;
   }
 
   try {
@@ -146,6 +155,9 @@ const updateUserProfile = async (targetUserId, updateData) => {
   }
 };
 
+/**
+ * Toggle connection (follow/unfollow) & trigger live notification
+ */
 const toggleConnection = async (followerId, followedId) => {
   const fId = isNaN(followerId) ? followerId : parseInt(followerId, 10);
   const tId = isNaN(followedId) ? followedId : parseInt(followedId, 10);
@@ -167,7 +179,7 @@ const toggleConnection = async (followerId, followedId) => {
     throw error;
   }
 
-  return await prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const existingConnection = await tx.connection.findUnique({
       where: {
         follower_id_followed_id: {
@@ -194,11 +206,32 @@ const toggleConnection = async (followerId, followedId) => {
           followed_id: tId,
         },
       });
+
       return { status: 'followed' };
     }
   });
+
+  // 🔔 Trigger notification push to Go WS server on follow action
+  if (result.status === 'followed') {
+    try {
+      await createNotification({
+        recipientId: tId,
+        actorId: fId,
+        type: 'follow',
+        targetId: String(fId), // Target ID points back to follower's profile
+        message: 'started following you',
+      });
+    } catch (err) {
+      console.warn('[User Service] Failed to trigger follow notification:', err.message);
+    }
+  }
+
+  return result;
 };
 
+/**
+ * Get recent activity feed for a specific user
+ */
 const getActivities = async (userId) => {
   const parsedId = isNaN(userId) ? userId : parseInt(userId, 10);
 

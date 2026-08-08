@@ -8,10 +8,11 @@ import (
 )
 
 type Config struct {
-	Port          string
-	JWTSecret     string
-	AllowedOrigin string
-	DatabaseURL   string
+	Port                  string
+	JWTSecret             string
+	InternalServiceSecret string
+	AllowedOrigin         string
+	DatabaseURL           string
 }
 
 func LoadConfig() *Config {
@@ -20,6 +21,11 @@ func LoadConfig() *Config {
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {
 		log.Fatal("❌ FATAL: JWT_SECRET environment variable is missing!")
+	}
+
+	internalSecret := os.Getenv("INTERNAL_SERVICE_SECRET")
+	if internalSecret == "" {
+		log.Fatal("❌ FATAL: INTERNAL_SERVICE_SECRET environment variable is missing!")
 	}
 
 	dbURL := os.Getenv("DATABASE_URL")
@@ -38,9 +44,10 @@ func LoadConfig() *Config {
 	}
 
 	return &Config{
-		Port:          port,
-		JWTSecret:     jwtSecret,
-		AllowedOrigin: origin,
-		DatabaseURL:   dbURL,
+		Port:                  port,
+		JWTSecret:             jwtSecret,
+		InternalServiceSecret: internalSecret,
+		AllowedOrigin:         origin,
+		DatabaseURL:           dbURL,
 	}
 }

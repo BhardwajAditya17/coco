@@ -25,8 +25,15 @@ func main() {
 	hub := websocket.NewHub(dbPool)
 	go hub.Run()
 
+	// 1. Client WebSocket Endpoint
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		websocket.ServeWs(hub, cfg.JWTSecret, cfg.AllowedOrigin, w, r)
+	})
+
+	// 2. Internal Microservice Endpoint (Express -> Go WS Push)
+	// Passed cfg.InternalServiceSecret to validate incoming X-Internal-Secret header
+	http.HandleFunc("/internal/notify", func(w http.ResponseWriter, r *http.Request) {
+		websocket.HandleInternalNotify(hub, cfg.InternalServiceSecret, w, r)
 	})
 
 	server := &http.Server{
@@ -39,7 +46,7 @@ func main() {
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
-		log.Printf("🚀 Go Chat Microservice listening on port %s...", cfg.Port)
+		log.Printf("🚀 Go Chat & Realtime Service listening on port %s...", cfg.Port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("❌ HTTP Server Error: %v", err)
 		}
@@ -55,5 +62,5 @@ func main() {
 		log.Fatalf("Server forced shutdown: %v", err)
 	}
 
-	log.Println("✅ Chat Service stopped cleanly.")
+	log.Println("✅ Service stopped cleanly.")
 }

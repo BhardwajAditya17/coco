@@ -1,4 +1,6 @@
+// postService
 const prisma = require('../config/prisma');
+const { createNotification } = require('./notificationService');
 
 /**
  * Creates a new post in the database with normalized tags
@@ -148,11 +150,22 @@ const deletePost = async (postId, requestingUserId, requestingUserRole) => {
 };
 
 /**
- * Toggles like status for a given post and user
+ * Toggles like status for a given post and user.
  */
 const toggleLike = async (userId, postId) => {
   const numericPostId = Number(postId);
   const numericUserId = Number(userId);
+
+  const post = await prisma.post.findUnique({
+    where: { id: numericPostId },
+    select: { user_id: true },
+  });
+
+  if (!post) {
+    const error = new Error('Post not found');
+    error.statusCode = 404;
+    throw error;
+  }
 
   const existingLike = await prisma.like.findUnique({
     where: {
@@ -172,7 +185,7 @@ const toggleLike = async (userId, postId) => {
         },
       },
     });
-    return { status: 'unliked' };
+    return { status: 'unliked', postOwnerId: post.user_id };
   } else {
     await prisma.like.create({
       data: {
@@ -180,15 +193,29 @@ const toggleLike = async (userId, postId) => {
         user_id: numericUserId,
       },
     });
-    return { status: 'liked' };
+
+    // 🔔 TRIGGER NOTIFICATION
+    try {
+      await createNotification({
+        recipientId: post.user_id,
+        actorId: numericUserId,
+        type: 'like',
+        targetId: String(numericPostId),
+        message: 'liked your post',
+      });
+    } catch (err) {
+      console.warn('[Post Service] Failed to trigger like notification:', err.message);
+    }
+
+    return { status: 'liked', postOwnerId: post.user_id };
   }
 };
 
 /**
- * Adds a comment to a specific post
+ * Adds a comment to a specific post.
  */
 const addComment = async (userId, postId, content) => {
-  return await prisma.comment.create({
+  const comment = await prisma.comment.create({
     data: {
       user_id: Number(userId),
       post_id: Number(postId),
@@ -196,8 +223,26 @@ const addComment = async (userId, postId, content) => {
     },
     include: {
       user: { select: { id: true, name: true, role: true, avatar_url: true } },
+      post: { select: { user_id: true } },
     },
   });
+
+  // 🔔 TRIGGER NOTIFICATION
+  try {
+    if (comment.post?.user_id) {
+      await createNotification({
+        recipientId: comment.post.user_id,
+        actorId: Number(userId),
+        type: 'comment',
+        targetId: String(postId),
+        message: content.length > 30 ? `${content.substring(0, 30)}...` : content,
+      });
+    }
+  } catch (err) {
+    console.warn('[Post Service] Failed to trigger comment notification:', err.message);
+  }
+
+  return comment;
 };
 
 /**

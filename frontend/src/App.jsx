@@ -1,6 +1,7 @@
 import React from 'react';
 import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from './hooks/useAuth';
+import { SocketProvider } from './context/SocketContext';
 
 // Pages
 import LoginPage from './pages/LoginPage';
@@ -12,6 +13,7 @@ import KycPage from './pages/KycPage';
 import AdminDashboard from './pages/AdminDashboard';
 import ChatPage from './pages/ChatPage';
 import CommunityPage from './pages/CommunityPage';
+import NotificationsPage from './pages/NotificationsPage';
 
 // Components
 import Navbar from './components/common/Navbar';
@@ -44,7 +46,11 @@ const ProtectedRoute = ({ allowedRoles, requireKyc = true }) => {
   }
 
   // 3. Check role-based access
-  if (allowedRoles && user && !allowedRoles.map(r => r.toLowerCase()).includes(user.role?.toLowerCase())) {
+  if (
+    allowedRoles &&
+    user &&
+    !allowedRoles.map((r) => r.toLowerCase()).includes(user.role?.toLowerCase())
+  ) {
     return <Navigate to="/feed" replace />;
   }
 
@@ -52,16 +58,18 @@ const ProtectedRoute = ({ allowedRoles, requireKyc = true }) => {
 };
 
 /**
- * Global Main Layout (Includes Navigation Bar)
+ * Global Main Layout (Includes Navigation Bar & Global Socket Provider)
  */
 const MainLayout = () => {
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Navbar />
-      <main className="pt-16">
-        <Outlet />
-      </main>
-    </div>
+    <SocketProvider>
+      <div className="min-h-screen bg-gray-50">
+        <Navbar />
+        <main className="pt-16">
+          <Outlet />
+        </main>
+      </div>
+    </SocketProvider>
   );
 };
 
@@ -101,34 +109,36 @@ function App() {
 
       {/* Authenticated Routes (Requires Login) */}
       <Route element={<ProtectedRoute requireKyc={false} />}>
-        
         {/* Standalone Route (No Navbar) */}
         <Route path="/kyc" element={<KycPage />} />
 
-        {/* Layout Wrapper (Renders Navbar for all child routes) */}
+        {/* Layout Wrapper (Renders Navbar & SocketProvider for all child routes) */}
         <Route element={<MainLayout />}>
-          
           {/* Strict Protected Routes (Requires Completed Verification) */}
           <Route element={<ProtectedRoute requireKyc={true} />}>
             <Route path="/feed" element={<FeedPage />} />
 
-            {/*  Real-time Chat Route */}
+            {/* Real-time Chat Route */}
             <Route path="/chat" element={<ChatPage />} />
 
             {/* Community Route */}
             <Route path="/community" element={<CommunityPage />} />
-            
+
+            {/* Notifications Route */}
+            <Route path="/notifications" element={<NotificationsPage />} />
+
             {/* User Profile Routes */}
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/profile/:id" element={<ProfilePage />} />
             <Route path="/profilesummary/:id" element={<ProfileSummaryPage />} />
 
             {/* Admin-Only Route */}
-            <Route element={<ProtectedRoute allowedRoles={['admin']} requireKyc={true} />}>
+            <Route
+              element={<ProtectedRoute allowedRoles={['admin']} requireKyc={true} />}
+            >
               <Route path="/admin" element={<AdminDashboard />} />
             </Route>
           </Route>
-
         </Route>
       </Route>
 

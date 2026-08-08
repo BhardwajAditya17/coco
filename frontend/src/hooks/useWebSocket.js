@@ -2,16 +2,18 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 
 export const useWebSocket = (token, currentUser) => {
   const [messages, setMessages] = useState([]);
+  const [latestNotification, setLatestNotification] = useState(null);
   const [onlineUsers, setOnlineUsers] = useState(new Set());
   const [typingUsers, setTypingUsers] = useState({});
   const [isConnected, setIsConnected] = useState(false);
+
   const ws = useRef(null);
   const reconnectTimeout = useRef(null);
 
   const connect = useCallback(() => {
     if (!token) return;
 
-    // 🛑 GUARD 1: Prevent duplicate WebSocket connections in React 18 Dev Mode
+    // 🛑 Guard against duplicate connection attempts
     if (
       ws.current &&
       (ws.current.readyState === WebSocket.OPEN ||
@@ -21,27 +23,36 @@ export const useWebSocket = (token, currentUser) => {
     }
 
     const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8080/ws';
-    ws.current = new WebSocket(`${wsUrl}?token=${token}`);
+    const socket = new WebSocket(`${wsUrl}?token=${token}`);
+    ws.current = socket;
 
-    ws.current.onopen = () => {
+    socket.onopen = () => {
       console.log('⚡ Connected to Go WebSocket Server');
       setIsConnected(true);
     };
 
-    ws.current.onmessage = (event) => {
+    socket.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
 
-        if (data.type === 'chat') {
-          // 🛡️ GUARD 2: Deduplicate incoming chat messages in state
+        // 🔔 1. Notifications (Server push or Chat notification)
+        if (data.type === 'notification' || data.type === 'ws:notification') {
+          const payload = data.payload || data.data || data;
+          setLatestNotification(payload);
+          window.dispatchEvent(
+            new CustomEvent('ws:notification', { detail: payload })
+          );
+        } 
+        // 💬 2. Real-time Chat Messages
+        else if (data.type === 'chat' || data.type === 'message') {
+          window.dispatchEvent(
+            new CustomEvent('ws:chat_message', { detail: data })
+          );
+
           setMessages((prev) => {
             const isDuplicate = prev.some((m) => {
-              // Match by server-assigned message ID if available
-              if (data.id && m.id) {
-                return String(m.id) === String(data.id);
-              }
+              if (data.id && m.id) return String(m.id) === String(data.id);
 
-              // Fallback match: Check sender, content, and timestamp proximity (<2 seconds)
               const mSender = String(m.senderId || m.sender_id || '');
               const dSender = String(data.senderId || data.sender_id || '');
               const mTime = Number(m.timestamp || m.createdAt || 0);
@@ -57,19 +68,28 @@ export const useWebSocket = (token, currentUser) => {
             if (isDuplicate) return prev;
             return [...prev, data];
           });
-        } else if (data.type === 'online_list') {
+        } 
+        // 🟢 3. Initial Online Users List
+        else if (data.type === 'online_list') {
           if (Array.isArray(data.onlineUsers)) {
             setOnlineUsers(new Set(data.onlineUsers));
           }
-        } else if (data.type === 'status') {
+        } 
+        // 🔄 4. Live User Online/Offline Status
+        else if (data.type === 'status') {
           setOnlineUsers((prev) => {
             const next = new Set(prev);
             const userId = String(data.senderId || data.sender_id);
-            if (data.isOnline) next.add(userId);
-            else next.delete(userId);
+            if (data.isOnline) {
+              next.add(userId);
+            } else {
+              next.delete(userId);
+            }
             return next;
           });
-        } else if (data.type === 'typing') {
+        } 
+        // ✍️ 5. Typing Indicators
+        else if (data.type === 'typing') {
           const sender = String(data.senderId || data.sender_id);
           setTypingUsers((prev) => ({
             ...prev,
@@ -81,59 +101,83 @@ export const useWebSocket = (token, currentUser) => {
       }
     };
 
-    ws.current.onclose = () => {
+    socket.onclose = () => {
       setIsConnected(false);
       ws.current = null;
+
+      // Auto-reconnect after 3 seconds
       reconnectTimeout.current = setTimeout(connect, 3000);
     };
 
-    ws.current.onerror = (err) => {
-      console.error('WebSocket Error:', err);
-      if (ws.current) ws.current.close();
+    socket.onerror = (err) => {
+      console.error('WebSocket connection error:', err);
     };
   }, [token]);
 
   useEffect(() => {
     connect();
+
     return () => {
-      if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
+      if (reconnectTimeout.current) {
+        clearTimeout(reconnectTimeout.current);
+      }
+
       if (ws.current) {
-        ws.current.close();
+        ws.current.onopen = null;
+        ws.current.onmessage = null;
+        ws.current.onerror = null;
+        ws.current.onclose = null;
+
+        if (
+          ws.current.readyState === WebSocket.OPEN ||
+          ws.current.readyState === WebSocket.CONNECTING
+        ) {
+          ws.current.close();
+        }
         ws.current = null;
       }
     };
   }, [connect]);
 
-  const sendMessage = (receiverId, content) => {
-    if (ws.current && isConnected) {
-      const payload = {
-        type: 'chat',
-        senderId: String(currentUser?.id),
-        receiverId: String(receiverId),
-        content,
-        timestamp: Date.now(),
-      };
-
-      ws.current.send(JSON.stringify(payload));
-    }
-  };
-
-  const sendTypingStatus = (receiverId, isTyping) => {
-    if (ws.current && isConnected) {
-      ws.current.send(
-        JSON.stringify({
-          type: 'typing',
+  // Memoized message dispatch function
+  const sendMessage = useCallback(
+    (receiverId, content) => {
+      if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+        const payload = {
+          type: 'chat',
           senderId: String(currentUser?.id),
           receiverId: String(receiverId),
-          isTyping,
-        })
-      );
-    }
-  };
+          content,
+          timestamp: Date.now(),
+        };
+
+        ws.current.send(JSON.stringify(payload));
+      }
+    },
+    [currentUser?.id]
+  );
+
+  // Memoized typing status function
+  const sendTypingStatus = useCallback(
+    (receiverId, isTyping) => {
+      if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+        ws.current.send(
+          JSON.stringify({
+            type: 'typing',
+            senderId: String(currentUser?.id),
+            receiverId: String(receiverId),
+            isTyping,
+          })
+        );
+      }
+    },
+    [currentUser?.id]
+  );
 
   return {
     messages,
     setMessages,
+    latestNotification,
     onlineUsers,
     typingUsers,
     isConnected,

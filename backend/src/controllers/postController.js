@@ -5,21 +5,18 @@ const createPost = async (req, res, next) => {
     const { content, tags } = req.body;
     const userId = req.user.id;
     
-    // Collect all uploaded media paths
     let mediaUrls = [];
     if (req.files && req.files.length > 0) {
       mediaUrls = req.files.map((file) => {
         if (file.filename) {
           return `/uploads/${file.filename}`;
         }
-        return file.path; // Cloudinary fallback
+        return file.path;
       });
     } else if (req.file) {
-      // Single file fallback
       mediaUrls.push(req.file.filename ? `/uploads/${req.file.filename}` : req.file.path);
     }
     
-    // Safely parse tags stringified from FormData
     let parsedTags = [];
     if (tags) {
       parsedTags = typeof tags === 'string' ? JSON.parse(tags) : tags;
@@ -86,6 +83,7 @@ const toggleLike = async (req, res, next) => {
     const { postId } = req.params;
     const userId = req.user.id;
 
+    // Notification is safely triggered inside postService.toggleLike
     const result = await postService.toggleLike(userId, postId);
 
     res.status(200).json({
@@ -108,6 +106,7 @@ const addComment = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Comment content cannot be empty.' });
     }
 
+    // Notification is safely triggered inside postService.addComment
     const comment = await postService.addComment(userId, postId, content);
 
     res.status(201).json({

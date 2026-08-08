@@ -1,3 +1,4 @@
+//client.go
 package websocket
 
 import (
@@ -81,12 +82,10 @@ func (c *Client) WritePump() {
 		case msg, ok := <-c.Send:
 			_ = c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if !ok {
-				// Hub closed the channel, close WebSocket connection gracefully
 				_ = c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
 
-			// Send each JSON message in its own WebSocket text frame
 			w, err := c.Conn.NextWriter(websocket.TextMessage)
 			if err != nil {
 				return

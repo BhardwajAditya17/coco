@@ -2,16 +2,14 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams, useLocation } from 'react-router-dom';
 import { Search, Loader2, AlertCircle, Wifi, WifiOff, ArrowLeft } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
-import { useWebSocket } from '../hooks/useWebSocket';
+import { useSocket } from '../context/SocketContext';
 import { UserList } from '../components/chat/UserList';
 import { ChatWindow } from '../components/chat/ChatWindow';
 import { MessageInput } from '../components/chat/MessageInput';
 import api from '../services/api';
 
 const ChatPage = () => {
-  const { user: currentUser, token: authToken } = useAuth();
-  const token = authToken || localStorage.getItem('token');
-
+  const { user: currentUser } = useAuth();
   const [searchParams] = useSearchParams();
   const location = useLocation();
 
@@ -30,15 +28,15 @@ const ChatPage = () => {
   const [chatHistory, setChatHistory] = useState([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
-  // WebSocket Connection Hook
+  // Consume Global WebSocket Context
   const {
     messages: liveWsMessages,
     onlineUsers,
     typingUsers,
     isConnected,
     sendMessage,
-    sendTypingStatus
-  } = useWebSocket(token, currentUser);
+    sendTypingStatus,
+  } = useSocket();
 
   // 1. Fetch Contacted Users / Recent Conversations
   useEffect(() => {
@@ -64,7 +62,50 @@ const ChatPage = () => {
     }
   }, [currentUser?.id]);
 
-  // 2. Auto-select or inject Target User from URL or Router state
+  // 2. Sync Live WebSocket Messages to User List (Updates lastMessage, timestamp, & unreadCount)
+  useEffect(() => {
+    if (!liveWsMessages.length || !currentUser?.id) return;
+
+    const latestWsMsg = liveWsMessages[liveWsMessages.length - 1];
+    if (!latestWsMsg) return;
+
+    const senderId = String(latestWsMsg.sender_id || latestWsMsg.senderId || '');
+    const receiverId = String(latestWsMsg.receiver_id || latestWsMsg.receiverId || '');
+    const currentUserId = String(currentUser.id);
+
+    // Determine the chat partner ID
+    const otherUserId = senderId === currentUserId ? receiverId : senderId;
+    if (!otherUserId || otherUserId === 'me') return;
+
+    const msgTime = latestWsMsg.created_at || latestWsMsg.createdAt || latestWsMsg.timestamp || new Date().toISOString();
+    const msgContent = latestWsMsg.content || latestWsMsg.text || '';
+
+    setUsers((prevUsers) => {
+      const existingIndex = prevUsers.findIndex((u) => String(u.id) === otherUserId);
+      const isFromOther = senderId !== currentUserId;
+      const isCurrentlyActive = activeUser && String(activeUser.id) === otherUserId;
+
+      if (existingIndex !== -1) {
+        const updatedUsers = [...prevUsers];
+        const targetUser = { ...updatedUsers[existingIndex] };
+
+        targetUser.lastMessage = msgContent;
+        targetUser.lastMessageTime = msgTime;
+
+        if (isFromOther && !isCurrentlyActive) {
+          const currentUnread = Number(targetUser.unreadCount ?? targetUser.unread_count ?? 0);
+          targetUser.unreadCount = currentUnread + 1;
+        }
+
+        updatedUsers[existingIndex] = targetUser;
+        return updatedUsers;
+      }
+
+      return prevUsers;
+    });
+  }, [liveWsMessages, currentUser?.id, activeUser]);
+
+  // 3. Auto-select or inject Target User from URL / Router state
   useEffect(() => {
     if (!targetUserId || isLoadingUsers) return;
 
@@ -72,11 +113,13 @@ const ChatPage = () => {
     const existingUser = users.find((u) => String(u.id) === targetIdStr);
 
     if (existingUser) {
-      setActiveUser(existingUser);
+      handleSelectUser(existingUser);
     } else {
-      // Uncontacted user logic: check state or fetch profile from backend
       if (recipientFromState && String(recipientFromState.id) === targetIdStr) {
-        setUsers((prev) => [recipientFromState, ...prev.filter((u) => String(u.id) !== targetIdStr)]);
+        setUsers((prev) => [
+          { ...recipientFromState, unreadCount: 0 },
+          ...prev.filter((u) => String(u.id) !== targetIdStr),
+        ]);
         setActiveUser(recipientFromState);
       } else {
         const fetchTargetUserProfile = async () => {
@@ -84,7 +127,10 @@ const ChatPage = () => {
             const res = await api.get(`/users/${targetUserId}`);
             const userData = res.data?.data || res.data;
             if (userData) {
-              setUsers((prev) => [userData, ...prev.filter((u) => String(u.id) !== targetIdStr)]);
+              setUsers((prev) => [
+                { ...userData, unreadCount: 0 },
+                ...prev.filter((u) => String(u.id) !== targetIdStr),
+              ]);
               setActiveUser(userData);
             }
           } catch (err) {
@@ -97,7 +143,7 @@ const ChatPage = () => {
     }
   }, [targetUserId, isLoadingUsers, recipientFromState]);
 
-  // 3. Fetch Chat History from Database when Active User changes
+  // 4. Fetch Chat History from Database when Active User changes
   useEffect(() => {
     if (!activeUser?.id) {
       setChatHistory([]);
@@ -129,7 +175,19 @@ const ChatPage = () => {
     fetchHistory();
   }, [activeUser?.id]);
 
-  // 4. Filter Live WebSocket Messages belonging to active user conversation
+  // Handle selecting a user and clearing unread count
+  const handleSelectUser = (selectedUser) => {
+    setActiveUser(selectedUser);
+    setUsers((prevUsers) =>
+      prevUsers.map((u) =>
+        String(u.id) === String(selectedUser.id)
+          ? { ...u, unreadCount: 0, unread_count: 0 }
+          : u
+      )
+    );
+  };
+
+  // 5. Filter Live WebSocket Messages belonging to active user conversation
   const activeWsMessages = useMemo(() => {
     if (!activeUser || !currentUser) return [];
 
@@ -147,7 +205,7 @@ const ChatPage = () => {
     });
   }, [liveWsMessages, activeUser, currentUser]);
 
-  // 5. Combine Historical DB Messages with Live WS Messages without duplicates
+  // 6. Combine Historical DB Messages with Live WS Messages
   const currentChatMessages = useMemo(() => {
     const historyIds = new Set(
       chatHistory
@@ -163,12 +221,28 @@ const ChatPage = () => {
     return [...chatHistory, ...uniqueWsMessages];
   }, [chatHistory, activeWsMessages]);
 
-  // 6. Filter contacts by search query
-  const filteredUsers = useMemo(() => {
-    if (!searchQuery.trim()) return users;
-    return users.filter((u) =>
-      u.name?.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+  // 7. Sort users by latest message timestamp (NEWEST FIRST) & Filter by search query
+  const sortedAndFilteredUsers = useMemo(() => {
+    let list = [...users];
+
+    // Filter by search query
+    if (searchQuery.trim()) {
+      list = list.filter((u) =>
+        u.name?.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    }
+
+    // Sort by latest message time (Descending: newest on top)
+    return list.sort((a, b) => {
+      const timeA = new Date(
+        a.lastMessageTime || a.last_message_time || a.updated_at || a.created_at || 0
+      ).getTime();
+      const timeB = new Date(
+        b.lastMessageTime || b.last_message_time || b.updated_at || b.created_at || 0
+      ).getTime();
+
+      return timeB - timeA;
+    });
   }, [users, searchQuery]);
 
   // Send Message Handler
@@ -203,7 +277,6 @@ const ChatPage = () => {
       {/* Main Chat Container */}
       <div className="flex-1 max-w-7xl w-full mx-auto p-2 sm:p-4 md:p-6 flex overflow-hidden">
         <div className="flex-1 flex bg-white rounded-2xl shadow-xs border border-gray-200 overflow-hidden">
-
           {/* Left Sidebar: Contact Search & User List */}
           <div
             className={`w-full sm:w-80 md:w-96 border-r border-gray-200 flex flex-col bg-white ${
@@ -235,15 +308,17 @@ const ChatPage = () => {
                   <AlertCircle className="w-6 h-6" />
                   <p>{fetchError}</p>
                 </div>
-              ) : filteredUsers.length === 0 ? (
+              ) : sortedAndFilteredUsers.length === 0 ? (
                 <div className="p-6 text-center text-gray-400 text-sm">
-                  {searchQuery ? 'No members match your search.' : 'No other community members found.'}
+                  {searchQuery
+                    ? 'No members match your search.'
+                    : 'No other community members found.'}
                 </div>
               ) : (
                 <UserList
-                  users={filteredUsers}
+                  users={sortedAndFilteredUsers}
                   activeUser={activeUser}
-                  onSelectUser={setActiveUser}
+                  onSelectUser={handleSelectUser}
                   onlineUsers={onlineUsers}
                 />
               )}
@@ -265,13 +340,17 @@ const ChatPage = () => {
                   >
                     <ArrowLeft className="w-5 h-5" />
                   </button>
-                  <span className="font-semibold text-sm text-gray-800">Back to Messages</span>
+                  <span className="font-semibold text-sm text-gray-800">
+                    Back to Messages
+                  </span>
                 </div>
 
                 {isLoadingHistory ? (
                   <div className="flex-1 flex flex-col items-center justify-center text-gray-400 gap-2">
                     <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
-                    <span className="text-xs font-medium">Loading conversation history...</span>
+                    <span className="text-xs font-medium">
+                      Loading conversation history...
+                    </span>
                   </div>
                 ) : (
                   <ChatWindow
@@ -298,7 +377,6 @@ const ChatPage = () => {
               </div>
             )}
           </div>
-
         </div>
       </div>
     </div>

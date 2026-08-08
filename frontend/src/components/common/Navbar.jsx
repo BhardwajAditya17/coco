@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Link, NavLink, useNavigate } from 'react-router-dom';
+import { Link, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { 
   Menu, 
   X, 
@@ -15,15 +15,159 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import Button from '../common/Button';
+import api from '../../services/api';
 import { cn } from '../../utils/cn';
 
+/**
+ * Robust image URL builder that handles full local disk paths,
+ * relative paths, direct http/https, blob, and base64 URLs.
+ */
+const getImageUrl = (mediaInput) => {
+  if (!mediaInput) return null;
+  let mediaUrl = typeof mediaInput === 'object'
+    ? (mediaInput.url || mediaInput.path || mediaInput.src || '')
+    : mediaInput;
+
+  if (typeof mediaUrl !== 'string' || !mediaUrl.trim()) return null;
+
+  if (
+    mediaUrl.startsWith('http://') ||
+    mediaUrl.startsWith('https://') ||
+    mediaUrl.startsWith('blob:') ||
+    mediaUrl.startsWith('data:')
+  ) {
+    return mediaUrl;
+  }
+
+  // Convert Windows backslashes to standard web forward slashes
+  let cleanPath = mediaUrl.replace(/\\/g, '/');
+
+  // Strip local disk paths (e.g. /Users/.../backend/uploads/avatar.png -> /uploads/avatar.png)
+  if (cleanPath.includes('/uploads/')) {
+    cleanPath = cleanPath.substring(cleanPath.indexOf('/uploads/'));
+  } else if (!cleanPath.startsWith('/')) {
+    cleanPath = `/${cleanPath}`;
+  }
+
+  const API_BASE = import.meta.env.VITE_API_URL || '';
+  return API_BASE ? `${API_BASE}${cleanPath}` : cleanPath;
+};
+
 const Navbar = () => {
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated, loading, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
+  
+  // Unread count states for Notifications and Chat Messages
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
+  
+  const [avatarError, setAvatarError] = useState(false);
   const dropdownRef = useRef(null);
+
+  // Extract avatar from all possible database schema key variations
+  const rawAvatar = 
+    user?.avatar_url || 
+    user?.avatarUrl || 
+    user?.avatar || 
+    user?.profile_pic || 
+    user?.profilePic;
+
+  const rawAvatarUrl = getImageUrl(rawAvatar);
+  const userAvatar = !avatarError ? rawAvatarUrl : null;
+
+  // Reset avatar error state whenever rawAvatar changes
+  useEffect(() => {
+    setAvatarError(false);
+  }, [rawAvatar]);
+
+  // 1. Fetch initial unread counts ONCE when authenticated
+  useEffect(() => {
+    if (loading || !isAuthenticated) return;
+
+    let isMounted = true;
+
+    const fetchInitialCounts = async () => {
+      try {
+        const [notifRes, chatRes] = await Promise.allSettled([
+          api.get('/notifications/unread-count'),
+          api.get('/messages/unread-count')
+        ]);
+
+        if (!isMounted) return;
+
+        // Extract Notification Count
+        if (notifRes.status === 'fulfilled') {
+          const res = notifRes.value.data;
+          const count = Number(res?.count ?? res?.data?.count ?? res?.unreadCount ?? 0);
+          setUnreadCount(window.location.pathname === '/notifications' ? 0 : count);
+        }
+
+        // Extract Chat / Messages Count
+        if (chatRes.status === 'fulfilled') {
+          const res = chatRes.value.data;
+          const count = Number(res?.count ?? res?.data?.count ?? res?.unreadCount ?? 0);
+          setUnreadChatCount(window.location.pathname.startsWith('/chat') ? 0 : count);
+        }
+      } catch (err) {
+        console.error('Failed to fetch initial unread counts:', err);
+      }
+    };
+
+    fetchInitialCounts();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isAuthenticated, loading]);
+
+  // 2. Clear counts automatically when active route matches
+  useEffect(() => {
+    if (location.pathname === '/notifications') {
+      setUnreadCount(0);
+    }
+    if (location.pathname.startsWith('/chat')) {
+      setUnreadChatCount(0);
+    }
+  }, [location.pathname]);
+
+  // 3. Live WebSocket Notification Listener
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const handleLiveNotification = () => {
+      if (location.pathname === '/notifications') {
+        setUnreadCount(0);
+      } else {
+        setUnreadCount((prev) => prev + 1);
+      }
+    };
+
+    window.addEventListener('ws:notification', handleLiveNotification);
+    return () => window.removeEventListener('ws:notification', handleLiveNotification);
+  }, [isAuthenticated, location.pathname]);
+
+  // 4. Live WebSocket Chat Message Listener (Increments Chat Count)
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const handleLiveChatMessage = (event) => {
+      const msgData = event.detail;
+      const senderId = String(msgData?.senderId || msgData?.sender_id || '');
+      const currentUserId = String(user?.id || '');
+
+      // Only increment if message is from another user and viewer isn't inside /chat
+      if (senderId && senderId !== currentUserId && !location.pathname.startsWith('/chat')) {
+        setUnreadChatCount((prev) => prev + 1);
+      }
+    };
+
+    window.addEventListener('ws:chat_message', handleLiveChatMessage);
+    return () => window.removeEventListener('ws:chat_message', handleLiveChatMessage);
+  }, [isAuthenticated, location.pathname, user?.id]);
 
   // Close profile dropdown on outside click
   useEffect(() => {
@@ -43,7 +187,6 @@ const Navbar = () => {
     navigate('/login');
   };
 
-  // Reusable NavLink styling function to keep styling and height consistent
   const getNavLinkClass = (isActive) =>
     cn(
       "px-3.5 py-2 rounded-xl text-xs font-semibold transition-all flex items-center gap-2 cursor-pointer h-9",
@@ -84,32 +227,66 @@ const Navbar = () => {
               </NavLink>
 
               {/* 3. Messages / Chat */}
-              <NavLink to="/chat" className={({ isActive }) => getNavLinkClass(isActive)}>
-                <MessageSquare className="w-4 h-4" />
+              <NavLink 
+                to="/chat" 
+                className={({ isActive }) => getNavLinkClass(isActive)}
+                onClick={() => setUnreadChatCount(0)}
+              >
+                <div className="relative flex items-center justify-center">
+                  <MessageSquare className="w-4 h-4" />
+                  {unreadChatCount > 0 && (
+                    <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-blue-600 rounded-full ring-2 ring-white"></span>
+                  )}
+                </div>
                 <span>Chat</span>
+                {unreadChatCount > 0 && (
+                  <span className="px-1.5 py-0.5 text-[10px] bg-blue-100 text-blue-700 font-bold rounded-full">
+                    {unreadChatCount > 9 ? '9+' : unreadChatCount}
+                  </span>
+                )}
               </NavLink>
 
               {/* 4. Notifications */}
-              <button 
-                className="relative px-3.5 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-xl transition-all flex items-center gap-2 text-xs font-semibold h-9 cursor-pointer"
-                aria-label="Notifications"
+              <NavLink 
+                to="/notifications" 
+                className={({ isActive }) => getNavLinkClass(isActive)}
+                onClick={() => setUnreadCount(0)}
               >
                 <div className="relative flex items-center justify-center">
                   <Bell className="w-4 h-4" />
-                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-blue-600 rounded-full ring-2 ring-white"></span>
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-rose-500 rounded-full ring-2 ring-white"></span>
+                  )}
                 </div>
                 <span>Notifications</span>
-              </button>
+                {unreadCount > 0 && (
+                  <span className="px-1.5 py-0.5 text-[10px] bg-rose-100 text-rose-600 font-bold rounded-full">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </NavLink>
 
-              {/* 5. Profile Dropdown */}
+              {/* 5. Profile Dropdown Toggle */}
               <div className="relative" ref={dropdownRef}>
                 <button
                   onClick={() => setIsProfileDropdownOpen(!isProfileDropdownOpen)}
+                  aria-expanded={isProfileDropdownOpen}
+                  aria-label="User menu"
                   className="flex items-center gap-2 px-2.5 py-1 rounded-xl hover:bg-gray-50 transition-all text-left cursor-pointer border border-transparent hover:border-gray-200 h-9"
                 >
-                  <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center font-bold text-xs shadow-2xs">
-                    {user?.name?.charAt(0).toUpperCase() || 'U'}
-                  </div>
+                  {/* Round Desktop Avatar */}
+                  {userAvatar ? (
+                    <img 
+                      src={userAvatar} 
+                      alt={user?.name || 'User'} 
+                      onError={() => setAvatarError(true)}
+                      className="w-8 h-8 rounded-full object-cover border border-gray-200 shadow-2xs shrink-0"
+                    />
+                  ) : (
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center font-bold text-xs shadow-2xs shrink-0">
+                      {user?.name?.charAt(0).toUpperCase() || 'U'}
+                    </div>
+                  )}
                   <span className="text-xs font-semibold text-gray-900 max-w-[120px] truncate">
                     {user?.name}
                   </span>
@@ -175,6 +352,8 @@ const Navbar = () => {
           <div className="flex items-center md:hidden">
             <button
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              aria-label="Toggle navigation menu"
+              aria-expanded={isMobileMenuOpen}
               className="p-2 rounded-xl text-gray-500 hover:bg-gray-100 transition-colors"
             >
               {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -188,13 +367,23 @@ const Navbar = () => {
         <div className="md:hidden border-t border-gray-100 bg-white/95 backdrop-blur-md px-4 pt-3 pb-6 space-y-3">
           {isAuthenticated ? (
             <>
+              {/* Round Mobile User Header Avatar */}
               <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-2xl border border-gray-100 mb-2">
-                <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold text-sm shadow-xs">
-                  {user?.name?.charAt(0).toUpperCase() || 'U'}
-                </div>
-                <div>
-                  <div className="text-sm font-bold text-gray-900">{user?.name}</div>
-                  <div className="text-xs text-gray-500 capitalize">{user?.role || 'Member'}</div>
+                {userAvatar ? (
+                  <img 
+                    src={userAvatar} 
+                    alt={user?.name || 'User'} 
+                    onError={() => setAvatarError(true)}
+                    className="w-10 h-10 rounded-full object-cover border border-gray-200 shadow-xs shrink-0"
+                  />
+                ) : (
+                  <div className="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-sm shadow-xs shrink-0">
+                    {user?.name?.charAt(0).toUpperCase() || 'U'}
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-bold text-gray-900 truncate">{user?.name}</div>
+                  <div className="text-xs text-gray-500 capitalize truncate">{user?.role || 'Member'}</div>
                 </div>
               </div>
 
@@ -225,23 +414,47 @@ const Navbar = () => {
 
                 <NavLink
                   to="/chat"
-                  onClick={() => setIsMobileMenuOpen(false)}
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    setUnreadChatCount(0);
+                  }}
                   className={({ isActive }) => cn(
-                    "flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors",
+                    "flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors",
                     isActive ? "bg-blue-50 text-blue-700" : "text-gray-700 hover:bg-gray-50"
                   )}
                 >
-                  <MessageSquare className="w-4 h-4" />
-                  Chat
+                  <div className="flex items-center gap-3">
+                    <MessageSquare className="w-4 h-4" />
+                    <span>Chat</span>
+                  </div>
+                  {unreadChatCount > 0 && (
+                    <span className="px-2 py-0.5 text-xs bg-blue-600 text-white font-bold rounded-full">
+                      {unreadChatCount > 9 ? '9+' : unreadChatCount}
+                    </span>
+                  )}
                 </NavLink>
 
-                <button
-                  onClick={() => setIsMobileMenuOpen(false)}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors text-left"
+                <NavLink
+                  to="/notifications"
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    setUnreadCount(0);
+                  }}
+                  className={({ isActive }) => cn(
+                    "flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors",
+                    isActive ? "bg-blue-50 text-blue-700" : "text-gray-700 hover:bg-gray-50"
+                  )}
                 >
-                  <Bell className="w-4 h-4" />
-                  Notifications
-                </button>
+                  <div className="flex items-center gap-3">
+                    <Bell className="w-4 h-4" />
+                    <span>Notifications</span>
+                  </div>
+                  {unreadCount > 0 && (
+                    <span className="px-2 py-0.5 text-xs bg-rose-500 text-white font-bold rounded-full">
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </span>
+                  )}
+                </NavLink>
 
                 <NavLink
                   to={`/profilesummary/${user?.id}`}

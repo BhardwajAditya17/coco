@@ -14,7 +14,7 @@ export const APP_CONFIG = {
 export const ROLES = {
   ADMIN: 'admin',
   NGO: 'ngo',
-  USER: 'user', // standard social worker/volunteer
+  USER: 'user', // standard : 15 * 60 * 30/volunteer
 };
 
 /**

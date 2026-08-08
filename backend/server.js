@@ -15,6 +15,7 @@ const postRoutes = require('./src/routes/postRoutes');
 const kycRoutes = require('./src/routes/kycRoutes');
 const adminRoutes = require('./src/routes/adminRoutes');
 const messageRoutes = require('./src/routes/messageRoutes');
+const notificationRoutes = require('./src/routes/notificationRoutes');
 
 // Import Middlewares & Config
 const errorHandler = require('./src/middlewares/errorHandler');
@@ -55,7 +56,7 @@ if (process.env.NODE_ENV !== 'production') {
 
 // Rate Limiting
 const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 100, // 15 minutes
   max: 150,
   message: { success: false, message: 'Too many requests from this IP, please try again after 15 minutes' },
   standardHeaders: true,
@@ -78,6 +79,7 @@ app.use('/api/v1/posts', postRoutes);
 app.use('/api/v1/kyc', kycRoutes);
 app.use('/api/v1/admin', adminRoutes);
 app.use('/api/v1/messages', messageRoutes);
+app.use('/api/v1/notifications', notificationRoutes);
 
 // ==========================================
 // 3. ERROR HANDLING

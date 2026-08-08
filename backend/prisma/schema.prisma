@@ -33,7 +33,7 @@ model User {
   approval_status  String   @default("pending") @db.VarChar(20)
 
   created_at       DateTime @default(now())
-  updated_at       DateTime @updatedAt @default(now())
+  updated_at       DateTime @default(now()) @updatedAt
 
   posts            Post[]
   comments         Comment[]
@@ -50,6 +50,10 @@ model User {
   // Relations for Real-time Direct Chat / Messages
   sentMessages     Message[] @relation("SentMessages")
   receivedMessages Message[] @relation("ReceivedMessages")
+
+  // Relations for Notifications
+  receivedNotifications Notification[] @relation("ReceivedNotifications")
+  triggeredNotifications Notification[] @relation("TriggeredNotifications")
 }
 
 // Table for Direct Chat / WebSocket Messages
@@ -67,6 +71,24 @@ model Message {
   @@index([sender_id, receiver_id])
 }
 
+// Table for System & User Notifications
+model Notification {
+  id           Int      @id @default(autoincrement())
+  recipient_id Int
+  actor_id     Int
+  type         String   @db.VarChar(50) // 'chat', 'like', 'comment', 'whatsapp_request'
+  target_id    String?  @db.VarChar(255) // Stores post_id, chat_id, or custom redirect target
+  message      String   @db.Text
+  is_read      Boolean  @default(false)
+  created_at   DateTime @default(now())
+
+  recipient User @relation("ReceivedNotifications", fields: [recipient_id], references: [id], onDelete: Cascade)
+  actor     User @relation("TriggeredNotifications", fields: [actor_id], references: [id], onDelete: Cascade)
+
+  @@index([recipient_id])
+  @@index([is_read])
+}
+
 // Table for WhatsApp connection requests
 model WhatsappRequest {
   id          Int      @id @default(autoincrement())
@@ -74,7 +96,7 @@ model WhatsappRequest {
   receiver_id Int
   status      String   @default("PENDING") @db.VarChar(20) // PENDING, ACCEPTED, REJECTED
   created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt @default(now())
+  updated_at  DateTime @default(now()) @updatedAt
 
   sender   User @relation("SentWhatsappRequests", fields: [sender_id], references: [id], onDelete: Cascade)
   receiver User @relation("ReceivedWhatsappRequests", fields: [receiver_id], references: [id], onDelete: Cascade)

@@ -1,3 +1,4 @@
+//handler.go
 package websocket
 
 import (
@@ -49,7 +50,6 @@ func ServeWs(hub *Hub, jwtSecret string, allowedOrigin string, w http.ResponseWr
 
 	client.Hub.Register <- client
 
-	// Start read/write goroutines for this client connection
 	go client.WritePump()
 	go client.ReadPump()
 }

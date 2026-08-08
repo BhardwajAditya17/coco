@@ -1,4 +1,5 @@
 const prisma = require('../config/prisma');
+const { createNotification } = require('./notificationService');
 
 /**
  * Fetch chat history between two users
@@ -6,6 +7,16 @@ const prisma = require('../config/prisma');
 const getChatHistory = async (userId, otherUserId) => {
   const currentId = parseInt(userId, 10);
   const targetId = parseInt(otherUserId, 10);
+
+  // Automatically mark incoming messages from this user as read
+  await prisma.message.updateMany({
+    where: {
+      sender_id: targetId,
+      receiver_id: currentId,
+      is_read: false,
+    },
+    data: { is_read: true },
+  });
 
   const messages = await prisma.message.findMany({
     where: {
@@ -17,46 +28,86 @@ const getChatHistory = async (userId, otherUserId) => {
     orderBy: {
       created_at: 'asc',
     },
+    take: 100,
   });
 
-  return messages;
+  return messages.map((m) => ({
+    id: m.id,
+    senderId: m.sender_id,
+    receiverId: m.receiver_id,
+    content: m.content,
+    createdAt: m.created_at,
+    is_read: m.is_read,
+  }));
 };
 
 /**
- * Save a message directly via REST (fallback if Go doesn't save to DB)
+ * Count total unread chat messages for current user
  */
-const saveMessage = async (senderId, receiverId, content) => {
-  return await prisma.message.create({
-    data: {
-      sender_id: parseInt(senderId, 10),
-      receiver_id: parseInt(receiverId, 10),
-      content,
+const getUnreadChatCount = async (userId) => {
+  const currentId = parseInt(userId, 10);
+  return await prisma.message.count({
+    where: {
+      receiver_id: currentId,
+      is_read: false,
     },
   });
 };
 
 /**
- * Fetch list of users with active conversation history + latest message details
+ * Save a message directly via REST + push real-time notification trigger
+ */
+const saveMessage = async (senderId, receiverId, content) => {
+  const sId = parseInt(senderId, 10);
+  const rId = parseInt(receiverId, 10);
+
+  const newMessage = await prisma.message.create({
+    data: {
+      sender_id: sId,
+      receiver_id: rId,
+      content,
+    },
+  });
+
+  try {
+    await createNotification({
+      recipientId: rId,
+      actorId: sId,
+      type: 'chat',
+      targetId: String(sId),
+      message: content.length > 30 ? `${content.substring(0, 30)}...` : content,
+    });
+  } catch (err) {
+    console.warn('[Message Service] Failed to trigger live chat notification:', err.message);
+  }
+
+  return {
+    id: newMessage.id,
+    senderId: newMessage.sender_id,
+    receiverId: newMessage.receiver_id,
+    content: newMessage.content,
+    createdAt: newMessage.created_at,
+  };
+};
+
+/**
+ * Fetch list of users with active conversation history
  */
 const getConversations = async (userId) => {
   const currentId = parseInt(userId, 10);
 
-  // 1. Get all messages where current user is sender or receiver (newest first)
-  const messages = await prisma.message.findMany({
+  const recentMessages = await prisma.message.findMany({
     where: {
-      OR: [
-        { sender_id: currentId },
-        { receiver_id: currentId },
-      ],
+      OR: [{ sender_id: currentId }, { receiver_id: currentId }],
     },
     orderBy: {
       created_at: 'desc',
     },
+    take: 500,
   });
 
-  // 2. Filter out duplicate contacts, preserving only the latest message for each contact
   const conversationsMap = new Map();
-  for (const msg of messages) {
+  for (const msg of recentMessages) {
     const contactId = msg.sender_id === currentId ? msg.receiver_id : msg.sender_id;
 
     if (!conversationsMap.has(contactId)) {
@@ -70,7 +121,6 @@ const getConversations = async (userId) => {
   const contactIds = Array.from(conversationsMap.keys());
   if (contactIds.length === 0) return [];
 
-  // 3. Fetch user details for the contacted users
   const users = await prisma.user.findMany({
     where: {
       id: { in: contactIds },
@@ -84,7 +134,6 @@ const getConversations = async (userId) => {
     },
   });
 
-  // 4. Combine user profiles with last message info in sorted order
   const userMap = new Map(users.map((u) => [u.id, u]));
 
   const result = [];
@@ -92,7 +141,11 @@ const getConversations = async (userId) => {
     const userInfo = userMap.get(contactId);
     if (userInfo) {
       result.push({
-        ...userInfo,
+        id: userInfo.id,
+        name: userInfo.name,
+        avatar_url: userInfo.avatar_url,
+        role: userInfo.role,
+        current_position: userInfo.current_position,
         lastMessage: msgData.lastMessage,
         lastMessageTime: msgData.lastMessageTime,
       });
@@ -104,6 +157,7 @@ const getConversations = async (userId) => {
 
 module.exports = {
   getChatHistory,
+  getUnreadChatCount,
   saveMessage,
-  getConversations, // 👈 Exported new service
+  getConversations,
 };

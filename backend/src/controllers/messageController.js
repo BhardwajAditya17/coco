@@ -20,6 +20,20 @@ const getMessages = async (req, res, next) => {
   }
 };
 
+const getUnreadCount = async (req, res, next) => {
+  try {
+    const currentUserId = req.user.id;
+    const count = await messageService.getUnreadChatCount(currentUserId);
+
+    return res.status(200).json({
+      success: true,
+      data: { count },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 const createMessage = async (req, res, next) => {
   try {
     const senderId = req.user.id;
@@ -56,6 +70,7 @@ const getConversations = async (req, res, next) => {
 
 module.exports = {
   getMessages,
+  getUnreadCount,
   createMessage,
-  getConversations, // 👈 Exported new controller
+  getConversations,
 };
