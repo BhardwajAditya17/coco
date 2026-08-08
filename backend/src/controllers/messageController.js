@@ -20,6 +20,26 @@ const getMessages = async (req, res, next) => {
   }
 };
 
+const markMessagesAsRead = async (req, res, next) => {
+  try {
+    const currentUserId = req.user.id;
+    const { userId: senderId } = req.params;
+
+    if (!senderId) {
+      return res.status(400).json({ success: false, message: 'Sender ID is required.' });
+    }
+
+    await messageService.markAsRead(currentUserId, senderId);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Messages and notifications marked as read.',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 const getUnreadCount = async (req, res, next) => {
   try {
     const currentUserId = req.user.id;
@@ -70,6 +90,7 @@ const getConversations = async (req, res, next) => {
 
 module.exports = {
   getMessages,
+  markMessagesAsRead,
   getUnreadCount,
   createMessage,
   getConversations,

@@ -239,7 +239,7 @@ const ChatPage = () => {
     };
   }, [activeUser?.id]);
 
-  // 5. Select User Handler (State Update + Instant Navbar Dispatch + Dual API Fallback)
+  // 5. Select User Handler (State Update + Message & Notification Read Sync + Event Dispatch)
   const handleSelectUser = async (selectedUser) => {
     if (!selectedUser?.id) return;
 
@@ -258,16 +258,7 @@ const ChatPage = () => {
       )
     );
 
-    // Notify Navbar immediately via CustomEvent to clear badge counter
-    if (currentUnread > 0) {
-      window.dispatchEvent(
-        new CustomEvent('chat:read', {
-          detail: { clearedCount: currentUnread, userId: selectedUser.id },
-        })
-      );
-    }
-
-    // Backend Read Sync with Primary & Fallback API Routing
+    // 1. Mark Messages as Read on Backend
     try {
       await api.put(`/messages/read/${selectedUser.id}`);
     } catch (primaryErr) {
@@ -282,10 +273,29 @@ const ChatPage = () => {
           `All mark-as-read API attempts failed for user ${selectedUser.id}:`,
           secondaryErr
         );
-        // Force Navbar to refresh total count from source if API fails
-        window.dispatchEvent(new CustomEvent('chat:refresh_unread'));
       }
     }
+
+    // 2. Mark Chat Notifications as Read on Backend (Clears Notification Badge)
+    try {
+      await api.put(`/notifications/read/chat/${selectedUser.id}`);
+    } catch (notifErr) {
+      try {
+        await api.put('/notifications/mark-read', { 
+          senderId: selectedUser.id, 
+          type: 'chat' 
+        });
+      } catch (fallbackNotifErr) {
+        // Backend handles this inside /messages/read if configured
+      }
+    }
+
+    // 3. Notify Navbar to refresh unread badges across header
+    window.dispatchEvent(
+      new CustomEvent('chat:read', {
+        detail: { clearedCount: currentUnread, userId: selectedUser.id },
+      })
+    );
   };
 
   // 6. Filter WebSocket Messages for Current Active Session

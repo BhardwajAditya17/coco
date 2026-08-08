@@ -100,6 +100,36 @@ const markAsRead = async (req, res) => {
   }
 };
 
+// PUT /api/notifications/read/chat/:senderId -> Mark chat notifications from a user as read
+const markChatNotificationsAsRead = async (req, res) => {
+  try {
+    const userId = Number(req.user?.id);
+    const senderId = Number(req.params.senderId);
+
+    if (isNaN(userId)) {
+      return res.status(401).json({ success: false, message: 'Unauthorized user' });
+    }
+    if (isNaN(senderId)) {
+      return res.status(400).json({ success: false, message: 'Invalid sender ID' });
+    }
+
+    await prisma.notification.updateMany({
+      where: {
+        recipient_id: userId,
+        actor_id: senderId,
+        type: 'chat',
+        is_read: false,
+      },
+      data: { is_read: true },
+    });
+
+    return res.status(200).json({ success: true, message: 'Chat notifications marked as read' });
+  } catch (error) {
+    console.error('Error marking chat notifications as read:', error);
+    return res.status(500).json({ success: false, message: 'Server error marking chat notifications as read' });
+  }
+};
+
 // PUT /api/notifications/read-all -> Mark all as read
 const markAllAsRead = async (req, res) => {
   try {
@@ -155,6 +185,7 @@ module.exports = {
   getNotifications,
   getUnreadCount,
   markAsRead,
+  markChatNotificationsAsRead,
   markAllAsRead,
   deleteNotification,
 };

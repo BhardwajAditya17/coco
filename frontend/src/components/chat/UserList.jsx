@@ -2,6 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { MessageSquare } from 'lucide-react';
 
 /**
+ * Helper to safely extract user ID regardless of backend naming conventions
+ */
+const getUserId = (userObj) => {
+  if (!userObj) return null;
+  return userObj.id ?? userObj._id ?? userObj.userId ?? null;
+};
+
+/**
  * Robust image URL builder that handles full server paths,
  * relative paths, and direct http/https URLs.
  */
@@ -13,7 +21,6 @@ const getImageUrl = (mediaInput) => {
 
   if (typeof mediaUrl !== 'string' || !mediaUrl.trim()) return null;
 
-  // Direct remote, blob, or base64 URLs
   if (
     mediaUrl.startsWith('http://') ||
     mediaUrl.startsWith('https://') ||
@@ -23,10 +30,8 @@ const getImageUrl = (mediaInput) => {
     return mediaUrl;
   }
 
-  // Convert Windows backslashes to standard web forward slashes
   let cleanPath = mediaUrl.replace(/\\/g, '/');
 
-  // Strip local disk paths (e.g. /Users/.../backend/uploads/avatar.png -> /uploads/avatar.png)
   if (cleanPath.includes('/uploads/')) {
     cleanPath = cleanPath.substring(cleanPath.indexOf('/uploads/'));
   } else if (!cleanPath.startsWith('/')) {
@@ -49,7 +54,6 @@ const UserAvatar = ({ user, isOnline }) => {
 
   const avatarUrl = getImageUrl(rawAvatar);
 
-  // Reset error state if user or avatar changes
   useEffect(() => {
     setImgError(false);
   }, [rawAvatar]);
@@ -80,15 +84,16 @@ const UserAvatar = ({ user, isOnline }) => {
 export const UserList = ({
   users = [],
   activeUser,
-  selectedUser, // Fallback alias support
+  selectedUser,
   onSelectUser,
   onlineUsers,
   typingUsers = {},
 }) => {
   const currentActive = activeUser || selectedUser;
+  const activeUserId = getUserId(currentActive);
 
   const checkIsOnline = (userId) => {
-    if (!onlineUsers) return false;
+    if (!onlineUsers || userId == null) return false;
 
     const idStr = String(userId);
     const idNum = Number(userId);
@@ -119,12 +124,15 @@ export const UserList = ({
   return (
     <div className="divide-y divide-gray-100 overflow-y-auto">
       {users.map((user) => {
-        const isOnline = checkIsOnline(user.id);
-        
-        // Strict string conversion check prevents Number vs String ID comparison bugs
-        const isSelected = currentActive && String(currentActive.id) === String(user.id);
+        const userId = getUserId(user);
+        if (!userId) return null;
 
-        const isTyping = Boolean(typingUsers?.[String(user.id)] || typingUsers?.[Number(user.id)]);
+        const isOnline = checkIsOnline(userId);
+        
+        // Robust ID comparison across string / number types and schema key variations
+        const isSelected = Boolean(activeUserId && String(activeUserId) === String(userId));
+
+        const isTyping = Boolean(typingUsers?.[String(userId)] || typingUsers?.[Number(userId)]);
 
         const rawTime = user.lastMessageTime || user.last_message_time || user.updated_at || user.created_at;
         const formattedTime = rawTime
@@ -136,16 +144,24 @@ export const UserList = ({
 
         return (
           <div
-            key={user.id}
+            key={userId}
             onClick={() => onSelectUser(user)}
             className={`p-3.5 flex items-center gap-3 cursor-pointer transition-colors relative ${
               isSelected
-                ? 'bg-indigo-50/80 border-l-4 border-indigo-600'
+                ? 'bg-indigo-50/80'
                 : hasUnread
-                ? 'bg-indigo-50/40 hover:bg-indigo-50/60 border-l-4 border-indigo-500'
+                ? 'bg-indigo-50/40 hover:bg-indigo-50/60'
                 : 'hover:bg-gray-50'
             }`}
           >
+            {/* Absolute Accent Bar (Eliminates CSS divide-y border conflicts & layout shifting) */}
+            {isSelected && (
+              <span className="absolute left-0 top-0 bottom-0 w-1 bg-indigo-600 rounded-r" />
+            )}
+            {hasUnread && !isSelected && (
+              <span className="absolute left-0 top-0 bottom-0 w-1 bg-indigo-500 rounded-r" />
+            )}
+
             {/* Avatar Component */}
             <UserAvatar user={user} isOnline={isOnline} />
 

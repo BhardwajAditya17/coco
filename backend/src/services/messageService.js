@@ -2,13 +2,15 @@ const prisma = require('../config/prisma');
 const { createNotification } = require('./notificationService');
 
 /**
- * Fetch chat history between two users and mark incoming messages as read
+ * Mark messages and associated notifications from a specific contact as read
  */
-const getChatHistory = async (userId, otherUserId) => {
+const markAsRead = async (userId, otherUserId) => {
   const currentId = parseInt(userId, 10);
   const targetId = parseInt(otherUserId, 10);
 
-  // Automatically mark incoming messages from this target user as read
+  if (isNaN(currentId) || isNaN(targetId)) return;
+
+  // 1. Mark messages as read
   await prisma.message.updateMany({
     where: {
       sender_id: targetId,
@@ -17,6 +19,28 @@ const getChatHistory = async (userId, otherUserId) => {
     },
     data: { is_read: true },
   });
+
+  // 2. Mark corresponding chat notifications as read
+  await prisma.notification.updateMany({
+    where: {
+      recipient_id: currentId,
+      actor_id: targetId,
+      type: 'chat',
+      is_read: false,
+    },
+    data: { is_read: true },
+  });
+};
+
+/**
+ * Fetch chat history between two users and mark incoming messages/notifications as read
+ */
+const getChatHistory = async (userId, otherUserId) => {
+  const currentId = parseInt(userId, 10);
+  const targetId = parseInt(otherUserId, 10);
+
+  // Automatically mark incoming messages and notifications from target user as read
+  await markAsRead(currentId, targetId);
 
   const messages = await prisma.message.findMany({
     where: {
@@ -168,7 +192,7 @@ const getConversations = async (userId) => {
         current_position: userInfo.current_position,
         lastMessage: msgData.lastMessage,
         lastMessageTime: msgData.lastMessageTime,
-        unreadCount: unreadMap.get(contactId) || 0, // ✅ Populated unread count
+        unreadCount: unreadMap.get(contactId) || 0,
       });
     }
   }
@@ -177,6 +201,7 @@ const getConversations = async (userId) => {
 };
 
 module.exports = {
+  markAsRead,
   getChatHistory,
   getUnreadChatCount,
   saveMessage,

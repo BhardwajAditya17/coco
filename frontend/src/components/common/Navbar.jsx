@@ -106,7 +106,7 @@ const Navbar = () => {
           setUnreadCount(window.location.pathname === '/notifications' ? 0 : count);
         }
 
-        // Extract Chat / Messages Count (preserves real database unread total on refresh)
+        // Extract Chat / Messages Count
         if (chatRes.status === 'fulfilled') {
           const res = chatRes.value.data;
           const count = Number(res?.count ?? res?.data?.count ?? res?.unreadCount ?? 0);
@@ -131,21 +131,46 @@ const Navbar = () => {
     }
   }, [location.pathname]);
 
-  // 3. Listen for direct chat-read events dispatched from ChatPage
+  // 3. Listen for direct chat-read & refresh events dispatched from ChatPage
   useEffect(() => {
-    const handleChatRead = (event) => {
+    const handleChatRead = async (event) => {
       const clearedCount = Number(event.detail?.clearedCount || 0);
+      
+      // Update Chat badge count
       setUnreadChatCount((prev) => Math.max(0, prev - clearedCount));
+
+      // Synchronize Notification badge count with backend
+      try {
+        const notifRes = await api.get('/notifications/unread-count');
+        const res = notifRes.data;
+        const count = Number(res?.count ?? res?.data?.count ?? res?.unreadCount ?? 0);
+        setUnreadCount(location.pathname === '/notifications' ? 0 : count);
+      } catch (err) {
+        // Fallback: manually reduce notification badge if API sync fails
+        setUnreadCount((prev) => Math.max(0, prev - clearedCount));
+      }
     };
 
     const handleRefreshUnread = async () => {
       try {
-        const chatRes = await api.get('/messages/unread-count');
-        const res = chatRes.data;
-        const count = Number(res?.count ?? res?.data?.count ?? res?.unreadCount ?? 0);
-        setUnreadChatCount(count);
+        const [notifRes, chatRes] = await Promise.allSettled([
+          api.get('/notifications/unread-count'),
+          api.get('/messages/unread-count')
+        ]);
+
+        if (notifRes.status === 'fulfilled') {
+          const res = notifRes.value.data;
+          const count = Number(res?.count ?? res?.data?.count ?? res?.unreadCount ?? 0);
+          setUnreadCount(location.pathname === '/notifications' ? 0 : count);
+        }
+
+        if (chatRes.status === 'fulfilled') {
+          const res = chatRes.value.data;
+          const count = Number(res?.count ?? res?.data?.count ?? res?.unreadCount ?? 0);
+          setUnreadChatCount(count);
+        }
       } catch (err) {
-        console.error('Failed to refresh chat unread count:', err);
+        console.error('Failed to refresh unread counts:', err);
       }
     };
 
@@ -156,7 +181,7 @@ const Navbar = () => {
       window.removeEventListener('chat:read', handleChatRead);
       window.removeEventListener('chat:refresh_unread', handleRefreshUnread);
     };
-  }, []);
+  }, [location.pathname]);
 
   // 4. Live WebSocket Notification Listener
   useEffect(() => {
