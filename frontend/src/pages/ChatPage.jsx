@@ -38,31 +38,48 @@ const ChatPage = () => {
     sendTypingStatus,
   } = useSocket();
 
-  // 1. Fetch Contacted Users / Recent Conversations
+  // 1. Fetch Contacted Users / Recent Conversations & Normalize Unread Counts
   useEffect(() => {
+    let isMounted = true;
+
     const fetchContactedUsers = async () => {
       try {
         setIsLoadingUsers(true);
         setFetchError(null);
 
         const response = await api.get('/messages/conversations');
+        if (!isMounted) return;
+
         const contactedData = response.data?.data || response.data || [];
 
-        setUsers(contactedData);
+        // Standardize unread counts across different API schema keys
+        const normalizedData = contactedData.map((u) => ({
+          ...u,
+          unreadCount: Number(u.unreadCount ?? u.unread_count ?? u.unread ?? 0),
+        }));
+
+        setUsers(normalizedData);
       } catch (err) {
-        console.error('Failed to fetch conversations:', err);
-        setFetchError('Unable to load conversations.');
+        if (!isMounted) return;
+        console.error('Failed to fetch conversation list:', err);
+        setFetchError('Unable to load conversations. Please try refreshing.');
       } finally {
-        setIsLoadingUsers(false);
+        if (isMounted) {
+          setIsLoadingUsers(false);
+        }
       }
     };
 
     if (currentUser?.id) {
       fetchContactedUsers();
     }
+
+    return () => {
+      isMounted = false;
+    };
   }, [currentUser?.id]);
 
-  // 2. Sync Live WebSocket Messages to User List (Updates lastMessage, timestamp, & unreadCount)
+  // 2. Dynamic WebSocket Syncing (Supports existing contacts and new incoming senders)
   useEffect(() => {
     if (!liveWsMessages.length || !currentUser?.id) return;
 
@@ -77,14 +94,19 @@ const ChatPage = () => {
     const otherUserId = senderId === currentUserId ? receiverId : senderId;
     if (!otherUserId || otherUserId === 'me') return;
 
-    const msgTime = latestWsMsg.created_at || latestWsMsg.createdAt || latestWsMsg.timestamp || new Date().toISOString();
+    const msgTime =
+      latestWsMsg.created_at ||
+      latestWsMsg.createdAt ||
+      latestWsMsg.timestamp ||
+      new Date().toISOString();
     const msgContent = latestWsMsg.content || latestWsMsg.text || '';
+    const isFromOther = senderId !== currentUserId;
 
     setUsers((prevUsers) => {
       const existingIndex = prevUsers.findIndex((u) => String(u.id) === otherUserId);
-      const isFromOther = senderId !== currentUserId;
       const isCurrentlyActive = activeUser && String(activeUser.id) === otherUserId;
 
+      // SCENARIO A: Contact already exists in current state
       if (existingIndex !== -1) {
         const updatedUsers = [...prevUsers];
         const targetUser = { ...updatedUsers[existingIndex] };
@@ -93,19 +115,52 @@ const ChatPage = () => {
         targetUser.lastMessageTime = msgTime;
 
         if (isFromOther && !isCurrentlyActive) {
-          const currentUnread = Number(targetUser.unreadCount ?? targetUser.unread_count ?? 0);
+          const currentUnread = Number(targetUser.unreadCount ?? 0);
           targetUser.unreadCount = currentUnread + 1;
+        } else if (isCurrentlyActive) {
+          targetUser.unreadCount = 0;
         }
 
-        updatedUsers[existingIndex] = targetUser;
-        return updatedUsers;
+        // Reorder list: bring active conversation to top
+        updatedUsers.splice(existingIndex, 1);
+        return [targetUser, ...updatedUsers];
+      }
+
+      // SCENARIO B: First message from a new contact not yet in sidebar
+      if (isFromOther) {
+        const newContact = {
+          id: otherUserId,
+          name: latestWsMsg.senderName || latestWsMsg.sender_name || 'New Contact',
+          avatar_url: latestWsMsg.senderAvatar || latestWsMsg.sender_avatar || null,
+          lastMessage: msgContent,
+          lastMessageTime: msgTime,
+          unreadCount: isCurrentlyActive ? 0 : 1,
+        };
+
+        // Asynchronously enrich missing user details from API
+        api.get(`/users/${otherUserId}`)
+          .then((res) => {
+            const userData = res.data?.data || res.data;
+            if (userData) {
+              setUsers((currentList) =>
+                currentList.map((u) =>
+                  String(u.id) === otherUserId ? { ...u, ...userData } : u
+                )
+              );
+            }
+          })
+          .catch((err) => {
+            console.error(`Failed to load profile metadata for new contact ID ${otherUserId}:`, err);
+          });
+
+        return [newContact, ...prevUsers];
       }
 
       return prevUsers;
     });
   }, [liveWsMessages, currentUser?.id, activeUser]);
 
-  // 3. Auto-select or inject Target User from URL / Router state
+  // 3. Auto-Select or Inject Contact from URL Search Params / Navigation State
   useEffect(() => {
     if (!targetUserId || isLoadingUsers) return;
 
@@ -114,46 +169,48 @@ const ChatPage = () => {
 
     if (existingUser) {
       handleSelectUser(existingUser);
+    } else if (recipientFromState && String(recipientFromState.id) === targetIdStr) {
+      setUsers((prev) => [
+        { ...recipientFromState, unreadCount: 0 },
+        ...prev.filter((u) => String(u.id) !== targetIdStr),
+      ]);
+      handleSelectUser(recipientFromState);
     } else {
-      if (recipientFromState && String(recipientFromState.id) === targetIdStr) {
-        setUsers((prev) => [
-          { ...recipientFromState, unreadCount: 0 },
-          ...prev.filter((u) => String(u.id) !== targetIdStr),
-        ]);
-        setActiveUser(recipientFromState);
-      } else {
-        const fetchTargetUserProfile = async () => {
-          try {
-            const res = await api.get(`/users/${targetUserId}`);
-            const userData = res.data?.data || res.data;
-            if (userData) {
-              setUsers((prev) => [
-                { ...userData, unreadCount: 0 },
-                ...prev.filter((u) => String(u.id) !== targetIdStr),
-              ]);
-              setActiveUser(userData);
-            }
-          } catch (err) {
-            console.error('Unable to fetch target user profile:', err);
+      const fetchTargetUserProfile = async () => {
+        try {
+          const res = await api.get(`/users/${targetUserId}`);
+          const userData = res.data?.data || res.data;
+          if (userData) {
+            setUsers((prev) => [
+              { ...userData, unreadCount: 0 },
+              ...prev.filter((u) => String(u.id) !== targetIdStr),
+            ]);
+            handleSelectUser(userData);
           }
-        };
+        } catch (err) {
+          console.error(`Failed to fetch target user profile for ID ${targetUserId}:`, err);
+        }
+      };
 
-        fetchTargetUserProfile();
-      }
+      fetchTargetUserProfile();
     }
-  }, [targetUserId, isLoadingUsers, recipientFromState]);
+  }, [targetUserId, isLoadingUsers]);
 
-  // 4. Fetch Chat History from Database when Active User changes
+  // 4. Fetch Message History from Backend when Active User Changes
   useEffect(() => {
     if (!activeUser?.id) {
       setChatHistory([]);
       return;
     }
 
+    let isMounted = true;
+
     const fetchHistory = async () => {
       try {
         setIsLoadingHistory(true);
         const response = await api.get(`/messages/${activeUser.id}`);
+        if (!isMounted) return;
+
         const rawHistory = response.data?.data || response.data || [];
 
         const normalizedHistory = rawHistory.map((m) => ({
@@ -166,34 +223,78 @@ const ChatPage = () => {
 
         setChatHistory(normalizedHistory);
       } catch (err) {
-        console.error('Failed to fetch chat history:', err);
+        if (!isMounted) return;
+        console.error(`Failed to load chat history with user ID ${activeUser.id}:`, err);
       } finally {
-        setIsLoadingHistory(false);
+        if (isMounted) {
+          setIsLoadingHistory(false);
+        }
       }
     };
 
     fetchHistory();
+
+    return () => {
+      isMounted = false;
+    };
   }, [activeUser?.id]);
 
-  // Handle selecting a user and clearing unread count
-  const handleSelectUser = (selectedUser) => {
+  // 5. Select User Handler (State Update + Instant Navbar Dispatch + Dual API Fallback)
+  const handleSelectUser = async (selectedUser) => {
+    if (!selectedUser?.id) return;
+
+    const currentUnread = Number(
+      selectedUser.unreadCount ?? selectedUser.unread_count ?? selectedUser.unread ?? 0
+    );
+
     setActiveUser(selectedUser);
+
+    // Reset unread counter locally in React state
     setUsers((prevUsers) =>
       prevUsers.map((u) =>
         String(u.id) === String(selectedUser.id)
-          ? { ...u, unreadCount: 0, unread_count: 0 }
+          ? { ...u, unreadCount: 0, unread_count: 0, unread: 0 }
           : u
       )
     );
+
+    // Notify Navbar immediately via CustomEvent to clear badge counter
+    if (currentUnread > 0) {
+      window.dispatchEvent(
+        new CustomEvent('chat:read', {
+          detail: { clearedCount: currentUnread, userId: selectedUser.id },
+        })
+      );
+    }
+
+    // Backend Read Sync with Primary & Fallback API Routing
+    try {
+      await api.put(`/messages/read/${selectedUser.id}`);
+    } catch (primaryErr) {
+      console.warn(
+        `Primary endpoint /messages/read/${selectedUser.id} failed. Retrying fallback endpoint...`,
+        primaryErr
+      );
+      try {
+        await api.post('/messages/mark-read', { senderId: selectedUser.id });
+      } catch (secondaryErr) {
+        console.error(
+          `All mark-as-read API attempts failed for user ${selectedUser.id}:`,
+          secondaryErr
+        );
+        // Force Navbar to refresh total count from source if API fails
+        window.dispatchEvent(new CustomEvent('chat:refresh_unread'));
+      }
+    }
   };
 
-  // 5. Filter Live WebSocket Messages belonging to active user conversation
+  // 6. Filter WebSocket Messages for Current Active Session
   const activeWsMessages = useMemo(() => {
     if (!activeUser || !currentUser) return [];
 
     return liveWsMessages.filter((m) => {
-      const sender = String(m.sender_id || m.senderId || m.SenderID || '');
-      const receiver = String(m.receiver_id || m.receiverId || m.ReceiverID || '');
+      const sender = String(m.sender_id || m.senderId || '');
+      const receiver = String(m.receiver_id || m.receiverId || '');
 
       const currId = String(currentUser.id);
       const actId = String(activeUser.id);
@@ -205,7 +306,7 @@ const ChatPage = () => {
     });
   }, [liveWsMessages, activeUser, currentUser]);
 
-  // 6. Combine Historical DB Messages with Live WS Messages
+  // 7. Deduplicate & Combine DB Chat History with Live WS Messages
   const currentChatMessages = useMemo(() => {
     const historyIds = new Set(
       chatHistory
@@ -221,18 +322,16 @@ const ChatPage = () => {
     return [...chatHistory, ...uniqueWsMessages];
   }, [chatHistory, activeWsMessages]);
 
-  // 7. Sort users by latest message timestamp (NEWEST FIRST) & Filter by search query
+  // 8. Sort Contacts by Latest Timestamp (Newest First) & Apply Search Filter
   const sortedAndFilteredUsers = useMemo(() => {
     let list = [...users];
 
-    // Filter by search query
     if (searchQuery.trim()) {
       list = list.filter((u) =>
         u.name?.toLowerCase().includes(searchQuery.toLowerCase())
       );
     }
 
-    // Sort by latest message time (Descending: newest on top)
     return list.sort((a, b) => {
       const timeA = new Date(
         a.lastMessageTime || a.last_message_time || a.updated_at || a.created_at || 0
@@ -248,12 +347,33 @@ const ChatPage = () => {
   // Send Message Handler
   const handleSendMessage = async (text) => {
     if (!activeUser?.id || !text.trim()) return;
+    
+    // 1. Emit real-time frame
     sendMessage(activeUser.id, text);
+
+    // 2. Optimistically update sidebar conversation preview & timestamp
+    const nowISO = new Date().toISOString();
+    setUsers((prevUsers) => {
+      const activeIdStr = String(activeUser.id);
+      const existingIndex = prevUsers.findIndex((u) => String(u.id) === activeIdStr);
+
+      if (existingIndex !== -1) {
+        const updatedUsers = [...prevUsers];
+        const targetUser = {
+          ...updatedUsers[existingIndex],
+          lastMessage: text,
+          lastMessageTime: nowISO,
+        };
+        updatedUsers.splice(existingIndex, 1);
+        return [targetUser, ...updatedUsers];
+      }
+      return prevUsers;
+    });
   };
 
   return (
     <div className="h-[calc(100vh-4rem)] flex flex-col bg-gray-50 overflow-hidden">
-      {/* Network Status Banner */}
+      {/* Network Connection Banner */}
       <div
         className={`px-4 py-1.5 text-xs text-center font-medium flex items-center justify-center gap-2 transition-colors ${
           isConnected
@@ -277,7 +397,8 @@ const ChatPage = () => {
       {/* Main Chat Container */}
       <div className="flex-1 max-w-7xl w-full mx-auto p-2 sm:p-4 md:p-6 flex overflow-hidden">
         <div className="flex-1 flex bg-white rounded-2xl shadow-xs border border-gray-200 overflow-hidden">
-          {/* Left Sidebar: Contact Search & User List */}
+          
+          {/* Left Sidebar: Search & User Conversation List */}
           <div
             className={`w-full sm:w-80 md:w-96 border-r border-gray-200 flex flex-col bg-white ${
               activeUser ? 'hidden sm:flex' : 'flex'
@@ -320,12 +441,13 @@ const ChatPage = () => {
                   activeUser={activeUser}
                   onSelectUser={handleSelectUser}
                   onlineUsers={onlineUsers}
+                  typingUsers={typingUsers}
                 />
               )}
             </div>
           </div>
 
-          {/* Right Area: Chat Window */}
+          {/* Right Area: Main Chat Window & Input Area */}
           <div
             className={`flex-1 flex flex-col bg-gray-50/50 ${
               !activeUser ? 'hidden sm:flex' : 'flex'
@@ -356,7 +478,7 @@ const ChatPage = () => {
                   <ChatWindow
                     activeUser={activeUser}
                     messages={currentChatMessages}
-                    isTyping={typingUsers[activeUser.id] || false}
+                    isTyping={Boolean(typingUsers[String(activeUser.id)] || typingUsers[activeUser.id])}
                     currentUser={currentUser}
                   />
                 )}
@@ -377,6 +499,7 @@ const ChatPage = () => {
               </div>
             )}
           </div>
+
         </div>
       </div>
     </div>

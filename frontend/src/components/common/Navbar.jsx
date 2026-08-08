@@ -106,11 +106,11 @@ const Navbar = () => {
           setUnreadCount(window.location.pathname === '/notifications' ? 0 : count);
         }
 
-        // Extract Chat / Messages Count
+        // Extract Chat / Messages Count (preserves real database unread total on refresh)
         if (chatRes.status === 'fulfilled') {
           const res = chatRes.value.data;
           const count = Number(res?.count ?? res?.data?.count ?? res?.unreadCount ?? 0);
-          setUnreadChatCount(window.location.pathname.startsWith('/chat') ? 0 : count);
+          setUnreadChatCount(count);
         }
       } catch (err) {
         console.error('Failed to fetch initial unread counts:', err);
@@ -124,17 +124,41 @@ const Navbar = () => {
     };
   }, [isAuthenticated, loading]);
 
-  // 2. Clear counts automatically when active route matches
+  // 2. Clear notification route count when active
   useEffect(() => {
     if (location.pathname === '/notifications') {
       setUnreadCount(0);
     }
-    if (location.pathname.startsWith('/chat')) {
-      setUnreadChatCount(0);
-    }
   }, [location.pathname]);
 
-  // 3. Live WebSocket Notification Listener
+  // 3. Listen for direct chat-read events dispatched from ChatPage
+  useEffect(() => {
+    const handleChatRead = (event) => {
+      const clearedCount = Number(event.detail?.clearedCount || 0);
+      setUnreadChatCount((prev) => Math.max(0, prev - clearedCount));
+    };
+
+    const handleRefreshUnread = async () => {
+      try {
+        const chatRes = await api.get('/messages/unread-count');
+        const res = chatRes.data;
+        const count = Number(res?.count ?? res?.data?.count ?? res?.unreadCount ?? 0);
+        setUnreadChatCount(count);
+      } catch (err) {
+        console.error('Failed to refresh chat unread count:', err);
+      }
+    };
+
+    window.addEventListener('chat:read', handleChatRead);
+    window.addEventListener('chat:refresh_unread', handleRefreshUnread);
+
+    return () => {
+      window.removeEventListener('chat:read', handleChatRead);
+      window.removeEventListener('chat:refresh_unread', handleRefreshUnread);
+    };
+  }, []);
+
+  // 4. Live WebSocket Notification Listener
   useEffect(() => {
     if (!isAuthenticated) return;
 
@@ -150,7 +174,7 @@ const Navbar = () => {
     return () => window.removeEventListener('ws:notification', handleLiveNotification);
   }, [isAuthenticated, location.pathname]);
 
-  // 4. Live WebSocket Chat Message Listener (Increments Chat Count)
+  // 5. Live WebSocket Chat Message Listener (Increments Chat Count)
   useEffect(() => {
     if (!isAuthenticated) return;
 
@@ -159,15 +183,15 @@ const Navbar = () => {
       const senderId = String(msgData?.senderId || msgData?.sender_id || '');
       const currentUserId = String(user?.id || '');
 
-      // Only increment if message is from another user and viewer isn't inside /chat
-      if (senderId && senderId !== currentUserId && !location.pathname.startsWith('/chat')) {
+      // Only increment if message is from another user
+      if (senderId && senderId !== currentUserId) {
         setUnreadChatCount((prev) => prev + 1);
       }
     };
 
     window.addEventListener('ws:chat_message', handleLiveChatMessage);
     return () => window.removeEventListener('ws:chat_message', handleLiveChatMessage);
-  }, [isAuthenticated, location.pathname, user?.id]);
+  }, [isAuthenticated, user?.id]);
 
   // Close profile dropdown on outside click
   useEffect(() => {
@@ -214,24 +238,20 @@ const Navbar = () => {
           {isAuthenticated ? (
             <div className="hidden md:flex items-center gap-2">
               
-              {/* 1. Feed */}
+              {/* Feed */}
               <NavLink to="/feed" className={({ isActive }) => getNavLinkClass(isActive)}>
                 <LayoutGrid className="w-4 h-4" />
                 <span>Feed</span>
               </NavLink>
 
-              {/* 2. Community */}
+              {/* Community */}
               <NavLink to="/community" className={({ isActive }) => getNavLinkClass(isActive)}>
                 <Users className="w-4 h-4" />
                 <span>Community</span>
               </NavLink>
 
-              {/* 3. Messages / Chat */}
-              <NavLink 
-                to="/chat" 
-                className={({ isActive }) => getNavLinkClass(isActive)}
-                onClick={() => setUnreadChatCount(0)}
-              >
+              {/* Messages / Chat */}
+              <NavLink to="/chat" className={({ isActive }) => getNavLinkClass(isActive)}>
                 <div className="relative flex items-center justify-center">
                   <MessageSquare className="w-4 h-4" />
                   {unreadChatCount > 0 && (
@@ -246,7 +266,7 @@ const Navbar = () => {
                 )}
               </NavLink>
 
-              {/* 4. Notifications */}
+              {/* Notifications */}
               <NavLink 
                 to="/notifications" 
                 className={({ isActive }) => getNavLinkClass(isActive)}
@@ -266,7 +286,7 @@ const Navbar = () => {
                 )}
               </NavLink>
 
-              {/* 5. Profile Dropdown Toggle */}
+              {/* Profile Dropdown Toggle */}
               <div className="relative" ref={dropdownRef}>
                 <button
                   onClick={() => setIsProfileDropdownOpen(!isProfileDropdownOpen)}
@@ -274,7 +294,6 @@ const Navbar = () => {
                   aria-label="User menu"
                   className="flex items-center gap-2 px-2.5 py-1 rounded-xl hover:bg-gray-50 transition-all text-left cursor-pointer border border-transparent hover:border-gray-200 h-9"
                 >
-                  {/* Round Desktop Avatar */}
                   {userAvatar ? (
                     <img 
                       src={userAvatar} 
@@ -367,7 +386,6 @@ const Navbar = () => {
         <div className="md:hidden border-t border-gray-100 bg-white/95 backdrop-blur-md px-4 pt-3 pb-6 space-y-3">
           {isAuthenticated ? (
             <>
-              {/* Round Mobile User Header Avatar */}
               <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-2xl border border-gray-100 mb-2">
                 {userAvatar ? (
                   <img 
@@ -414,10 +432,7 @@ const Navbar = () => {
 
                 <NavLink
                   to="/chat"
-                  onClick={() => {
-                    setIsMobileMenuOpen(false);
-                    setUnreadChatCount(0);
-                  }}
+                  onClick={() => setIsMobileMenuOpen(false)}
                   className={({ isActive }) => cn(
                     "flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors",
                     isActive ? "bg-blue-50 text-blue-700" : "text-gray-700 hover:bg-gray-50"
@@ -442,7 +457,7 @@ const Navbar = () => {
                   }}
                   className={({ isActive }) => cn(
                     "flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-colors",
-                    isActive ? "bg-blue-50 text-blue-700" : "text-gray-700 hover:bg-gray-50"
+                    isActive ? "bg-rose-50 text-rose-700" : "text-gray-700 hover:bg-gray-50"
                   )}
                 >
                   <div className="flex items-center gap-3">

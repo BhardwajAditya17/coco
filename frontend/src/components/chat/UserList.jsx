@@ -64,7 +64,7 @@ const UserAvatar = ({ user, isOnline }) => {
           onError={() => setImgError(true)}
         />
       ) : (
-        <div className="w-11 h-11 rounded-full bg-indigo-600 text-white font-bold flex items-center justify-center shadow-xs">
+        <div className="w-11 h-11 rounded-full bg-indigo-600 text-white font-bold flex items-center justify-center shadow-xs text-base">
           {user.name?.[0]?.toUpperCase() || 'U'}
         </div>
       )}
@@ -77,7 +77,16 @@ const UserAvatar = ({ user, isOnline }) => {
   );
 };
 
-export const UserList = ({ users = [], activeUser, onSelectUser, onlineUsers }) => {
+export const UserList = ({
+  users = [],
+  activeUser,
+  selectedUser, // Fallback alias support
+  onSelectUser,
+  onlineUsers,
+  typingUsers = {},
+}) => {
+  const currentActive = activeUser || selectedUser;
+
   const checkIsOnline = (userId) => {
     if (!onlineUsers) return false;
 
@@ -95,7 +104,7 @@ export const UserList = ({ users = [], activeUser, onSelectUser, onlineUsers }) 
     return false;
   };
 
-  if (users.length === 0) {
+  if (!users || users.length === 0) {
     return (
       <div className="p-8 text-center text-gray-400 flex flex-col items-center justify-center gap-2">
         <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center text-gray-400">
@@ -108,10 +117,14 @@ export const UserList = ({ users = [], activeUser, onSelectUser, onlineUsers }) 
   }
 
   return (
-    <div className="divide-y divide-gray-100">
+    <div className="divide-y divide-gray-100 overflow-y-auto">
       {users.map((user) => {
         const isOnline = checkIsOnline(user.id);
-        const isSelected = activeUser?.id === user.id;
+        
+        // Strict string conversion check prevents Number vs String ID comparison bugs
+        const isSelected = currentActive && String(currentActive.id) === String(user.id);
+
+        const isTyping = Boolean(typingUsers?.[String(user.id)] || typingUsers?.[Number(user.id)]);
 
         const rawTime = user.lastMessageTime || user.last_message_time || user.updated_at || user.created_at;
         const formattedTime = rawTime
@@ -151,7 +164,11 @@ export const UserList = ({ users = [], activeUser, onSelectUser, onlineUsers }) 
 
               <div className="flex items-center justify-between gap-1">
                 <p className={`text-xs truncate ${hasUnread ? 'font-semibold text-gray-900' : 'text-gray-500'}`}>
-                  {user.lastMessage || user.last_message || user.current_position || user.role || (isOnline ? 'Online' : 'Offline')}
+                  {isTyping ? (
+                    <span className="text-indigo-600 font-medium animate-pulse">typing...</span>
+                  ) : (
+                    user.lastMessage || user.last_message || user.current_position || user.role || (isOnline ? 'Online' : 'Offline')
+                  )}
                 </p>
 
                 {/* Unread Counter Badge */}

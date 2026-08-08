@@ -2,13 +2,13 @@ const prisma = require('../config/prisma');
 const { createNotification } = require('./notificationService');
 
 /**
- * Fetch chat history between two users
+ * Fetch chat history between two users and mark incoming messages as read
  */
 const getChatHistory = async (userId, otherUserId) => {
   const currentId = parseInt(userId, 10);
   const targetId = parseInt(otherUserId, 10);
 
-  // Automatically mark incoming messages from this user as read
+  // Automatically mark incoming messages from this target user as read
   await prisma.message.updateMany({
     where: {
       sender_id: targetId,
@@ -42,7 +42,7 @@ const getChatHistory = async (userId, otherUserId) => {
 };
 
 /**
- * Count total unread chat messages for current user
+ * Count total unread chat messages for current user across all conversations
  */
 const getUnreadChatCount = async (userId) => {
   const currentId = parseInt(userId, 10);
@@ -91,11 +91,12 @@ const saveMessage = async (senderId, receiverId, content) => {
 };
 
 /**
- * Fetch list of users with active conversation history
+ * Fetch list of users with active conversation history including unread Counts
  */
 const getConversations = async (userId) => {
   const currentId = parseInt(userId, 10);
 
+  // 1. Fetch recent messages involving the user
   const recentMessages = await prisma.message.findMany({
     where: {
       OR: [{ sender_id: currentId }, { receiver_id: currentId }],
@@ -121,6 +122,24 @@ const getConversations = async (userId) => {
   const contactIds = Array.from(conversationsMap.keys());
   if (contactIds.length === 0) return [];
 
+  // 2. Aggregate unread count grouped by sender (contact)
+  const unreadCounts = await prisma.message.groupBy({
+    by: ['sender_id'],
+    where: {
+      receiver_id: currentId,
+      sender_id: { in: contactIds },
+      is_read: false,
+    },
+    _count: {
+      id: true,
+    },
+  });
+
+  const unreadMap = new Map(
+    unreadCounts.map((u) => [u.sender_id, u._count.id])
+  );
+
+  // 3. Get user details for each contact
   const users = await prisma.user.findMany({
     where: {
       id: { in: contactIds },
@@ -136,6 +155,7 @@ const getConversations = async (userId) => {
 
   const userMap = new Map(users.map((u) => [u.id, u]));
 
+  // 4. Assemble output array with populated unread counts
   const result = [];
   for (const [contactId, msgData] of conversationsMap.entries()) {
     const userInfo = userMap.get(contactId);
@@ -148,6 +168,7 @@ const getConversations = async (userId) => {
         current_position: userInfo.current_position,
         lastMessage: msgData.lastMessage,
         lastMessageTime: msgData.lastMessageTime,
+        unreadCount: unreadMap.get(contactId) || 0, // ✅ Populated unread count
       });
     }
   }
