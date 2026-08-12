@@ -1,6 +1,8 @@
 // 1. Only ONE generator and ONE datasource block allowed
 generator client {
   provider = "prisma-client-js"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
 }
 
 datasource db {
